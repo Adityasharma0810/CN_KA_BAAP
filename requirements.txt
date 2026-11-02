@@ -1,0 +1,5 @@
+fastapi
+uvicorn
+pytest
+httpx
+pustil==7.1.3
