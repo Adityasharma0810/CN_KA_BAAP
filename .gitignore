@@ -7,3 +7,6 @@ __pycache__/
 *.log
 node_modules/
 dist/
+# Local monitoring data
+data/*.sqlite3
+data/*.db
