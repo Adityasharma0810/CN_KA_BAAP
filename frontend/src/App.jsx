@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import NetworkTopology from "./components/NetworkTopology";
 import {
   LineChart,
   Line,
@@ -14,11 +15,13 @@ const API_BASE = "http://127.0.0.1:8000";
 
 
 function App() {
+  const [autoMonitoring, setAutoMonitoring] = useState(false);
+  const inFlightRef = useRef(false);
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [collecting, setCollecting] = useState(false);
-  async function fetchHistory() {
+  const fetchHistory = useCallback(async () => {
     try {
       const response = await fetch(
         `${API_BASE}/api/v1/monitoring/history?limit=50`
@@ -30,8 +33,6 @@ function App() {
 
       const result = await response.json();
 
-      // API returns newest samples first.
-      // Reverse them so charts display oldest → newest.
       const formattedData = result.samples
         .slice()
         .reverse()
@@ -53,10 +54,12 @@ function App() {
     } finally {
       setLoading(false);
     }
-  }
-  async function collectMeasurement() {
+  }, []);
+  const collectMeasurement = useCallback(async () => {
+    if (inFlightRef.current) return;
+
+    inFlightRef.current = true;
     setCollecting(true);
-    setError(null);
 
     try {
       const response = await fetch(
@@ -76,21 +79,48 @@ function App() {
       );
 
       if (!response.ok) {
-        throw new Error("Could not collect a network measurement.");
+        const result = await response.json().catch(() => ({}));
+
+        throw new Error(
+          typeof result.detail === "string"
+            ? result.detail
+            : "Network measurement failed."
+        );
       }
 
       await response.json();
       await fetchHistory();
+
     } catch (err) {
       setError(err.message);
+
     } finally {
+      inFlightRef.current = false;
       setCollecting(false);
     }
-  }
+  }, [fetchHistory]);
 
+  // Initial dashboard load
   useEffect(() => {
     fetchHistory();
-  }, []);
+  }, [fetchHistory]);
+
+  // Automatic monitoring
+  useEffect(() => {
+    if (!autoMonitoring) return;
+
+    // Collect immediately when automatic monitoring starts.
+    collectMeasurement();
+
+    // Collect again every 15 seconds.
+    const timer = window.setInterval(() => {
+      collectMeasurement();
+    }, 15000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [autoMonitoring, collectMeasurement]);
 
   if (loading) {
     return (
@@ -119,19 +149,30 @@ function App() {
           <h1>Experience Budget</h1>
           <p>Privacy-preserving network baseline monitoring</p>
         </div>
-        <button
-          className="collect-button"
-          onClick={collectMeasurement}
-          disabled={collecting}
-        >
-          {collecting ? "Collecting..." : "Collect Now"}
-        </button>
 
-        <div className={`status ${latest?.online ? "" : "offline"}`}>
-          <span className="status-dot"></span>
-          {latest?.online ? "ONLINE" : "NO DATA"}
+        <div className="header-actions">
+          <button
+            className={`auto-button ${autoMonitoring ? "active" : ""}`}
+            onClick={() => setAutoMonitoring((current) => !current)}
+          >
+            {autoMonitoring ? "Stop Monitoring" : "Start Monitoring"}
+          </button>
+
+          <button
+            className="collect-button"
+            onClick={collectMeasurement}
+            disabled={collecting}
+          >
+            {collecting ? "Collecting..." : "Collect Now"}
+          </button>
+
+          <div className={`status ${latest?.online ? "" : "offline"}`}>
+            <span className="status-dot"></span>
+            {latest?.online ? "ONLINE" : "NO DATA"}
+          </div>
         </div>
       </header>
+      <NetworkTopology />
 
       {data.length === 0 ? (
         <section className="chart-card empty-state">

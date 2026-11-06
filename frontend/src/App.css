@@ -159,3 +159,41 @@ footer {
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.auto-button,
+.collect-button {
+  padding: 10px 16px;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.auto-button {
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.auto-button.active {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.collect-button {
+  background: #2563eb;
+  color: white;
+}
+
+.collect-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

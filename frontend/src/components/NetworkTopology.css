@@ -1,0 +1,283 @@
+
+/* =========================================
+   EXPERIENCE BUDGET — NETWORK TOPOLOGY
+   Clean, compact and responsive node design
+========================================= */
+
+.topology-panel {
+  width: 100%;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 22px;
+  margin-bottom: 24px;
+  overflow: hidden;
+}
+
+.topology-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.topology-header h2 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 19px;
+  font-weight: 700;
+}
+
+.topology-header p {
+  margin: 5px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.preview-badge {
+  flex-shrink: 0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+/* Graph container */
+
+.topology-canvas {
+  width: 100%;
+  height: 620px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+/* Custom node cards */
+
+.network-node {
+  box-sizing: border-box;
+  width: 230px;
+  min-height: 145px;
+  padding: 12px 14px;
+  background: #ffffff;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 11px;
+  color: #0f172a;
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.06);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.network-node:hover {
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.12);
+}
+
+/* Node types */
+
+.network-node.router {
+  border-color: #3b82f6;
+  border-top: 3px solid #3b82f6;
+}
+
+.network-node.gateway {
+  border-color: #10b981;
+  border-top: 3px solid #10b981;
+}
+
+.network-node.client {
+  border-color: #8b5cf6;
+  border-top: 3px solid #8b5cf6;
+}
+
+/* Header inside each card */
+
+.node-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.node-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  background: #f1f5f9;
+  font-size: 19px;
+}
+
+.node-heading > div {
+  min-width: 0;
+}
+
+.node-heading strong {
+  display: block;
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-heading small {
+  display: block;
+  margin-top: 4px;
+  overflow: hidden;
+  color: #64748b;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Status */
+
+.node-status {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 11px;
+  padding: 4px 8px;
+  border-radius: 5px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+}
+
+.node-status.router {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.node-status.gateway {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.node-status.client {
+  background: #f5f3ff;
+  color: #6d28d9;
+}
+
+/* Upload / Download metrics */
+
+.node-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 13px;
+  padding-top: 10px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.node-metrics > div {
+  min-width: 0;
+}
+
+.node-metrics small {
+  display: block;
+  color: #64748b;
+  font-size: 10px;
+  margin-bottom: 4px;
+}
+
+.node-metrics strong {
+  display: block;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+/* Description */
+
+.node-note {
+  margin-top: 10px;
+  color: #94a3b8;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+/* Connection handles */
+
+.network-node .react-flow__handle {
+  width: 8px;
+  height: 8px;
+  border: 2px solid #ffffff;
+  background: #64748b;
+}
+
+.network-node.router .react-flow__handle {
+  background: #3b82f6;
+}
+
+.network-node.gateway .react-flow__handle {
+  background: #10b981;
+}
+
+.network-node.client .react-flow__handle {
+  background: #8b5cf6;
+}
+
+/* Edges */
+
+.topology-canvas .react-flow__edge-text {
+  fill: #475569;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.topology-canvas .react-flow__edge-textbg {
+  fill: #ffffff;
+  fill-opacity: 0.95;
+}
+
+.topology-canvas .react-flow__controls {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.topology-canvas .react-flow__minimap {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+/* Disclaimer */
+
+.topology-disclaimer {
+  margin: 13px 0 0;
+  color: #94a3b8;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* Responsive */
+
+@media (max-width: 768px) {
+  .topology-panel {
+    padding: 14px;
+  }
+
+  .topology-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .topology-canvas {
+    height: 550px;
+  }
+
+  .network-node {
+    width: 210px;
+  }
+}
