@@ -75,6 +75,33 @@ COLUMNS = (
 class MetricsStore:
     """SQLite storage for aggregate network metrics."""
 
+    def get_samples_by_interface(self, interface_label, limit=100):
+        """Retrieve measurements for one interface only."""
+
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
+            raise ValueError("Limit must be a positive integer.")
+
+        connection = self._connect()
+
+        try:
+            rows = connection.execute(
+                """
+                SELECT * FROM network_samples
+                WHERE interface_label = ?
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (interface_label, limit),
+            ).fetchall()
+
+            return [dict(row) for row in rows]
+
+        finally:
+            connection.close()
+
+
+
+    
     def __init__(self, db_path=DEFAULT_DB_PATH):
         self.db_path = Path(db_path)
 

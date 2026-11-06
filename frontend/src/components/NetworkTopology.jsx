@@ -12,6 +12,11 @@ import {
 import "@xyflow/react/dist/style.css";
 import "./NetworkTopology.css";
 
+function formatMbps(value) {
+  if (value === undefined || value === null) return "—";
+  return `${Number(value).toFixed(3)} Mbps`;
+}
+
 function NetworkNode({ data }) {
   return (
     <div className={`network-node ${data.kind}`}>
@@ -33,12 +38,12 @@ function NetworkNode({ data }) {
       <div className="node-metrics">
         <div>
           <small>Download</small>
-          <strong>{data.download}</strong>
+          <strong>{formatMbps(data.download)}</strong>
         </div>
 
         <div>
           <small>Upload</small>
-          <strong>{data.upload}</strong>
+          <strong>{formatMbps(data.upload)}</strong>
         </div>
       </div>
 
@@ -53,126 +58,98 @@ const nodeTypes = {
   networkNode: NetworkNode,
 };
 
-const initialNodes = [
-  {
-    id: "source",
-    type: "networkNode",
-    position: { x: 350, y: 0 },
-    data: {
-      kind: "router",
-      icon: "🌐",
-      title: "Internet Source",
-      subtitle: "Jio / Airtel / Phone Hotspot",
-      status: "UPSTREAM",
-      download: "—",
-      upload: "—",
-      note: "Internet WAN source",
+export default function NetworkTopology({ upstream, downstream }) {
+  const nodes = [
+    {
+      id: "router",
+      type: "networkNode",
+      position: { x: 350, y: 20 },
+      data: {
+        kind: "router",
+        icon: "🌐",
+        title: "Internet Source",
+        subtitle: "Jio / Airtel Router",
+        status: "UPSTREAM SOURCE",
+        download: null,
+        upload: null,
+        note: "Router's own traffic metrics are not directly measured",
+      },
     },
-  },
-  {
-    id: "gateway",
-    type: "networkNode",
-    position: { x: 350, y: 215 },
-    data: {
-      kind: "gateway",
-      icon: "💻",
-      title: "Experience Budget",
-      subtitle: "This laptop · Gateway",
-      status: "MONITORING",
-      download: "—",
-      upload: "—",
-      note: "Aggregate network monitoring",
+    {
+      id: "gateway",
+      type: "networkNode",
+      position: { x: 350, y: 360 },
+      data: {
+        kind: "gateway",
+        icon: "💻",
+        title: "Experience Budget",
+        subtitle: "Your laptop · Wi-Fi interface",
+        status: !upstream
+          ? "NO SAMPLE"
+          : upstream.online
+            ? "ONLINE"
+            : "OFFLINE",
+        download: upstream?.download,
+        upload: upstream?.upload,
+        note: "Actual aggregate upstream interface counters",
+      },
     },
-  },
-  {
-    id: "client-01",
-    type: "networkNode",
-    position: { x: 40, y: 460 },
-    data: {
-      kind: "client",
-      icon: "📱",
-      title: "Client 01",
-      subtitle: "Anonymous device",
-      status: "AWAITING CONNECTION",
-      download: "—",
-      upload: "—",
-      note: "Waiting for gateway telemetry",
+    {
+      id: "hotspot",
+      type: "networkNode",
+      position: { x: 350, y: 700 },
+      data: {
+        kind: "client",
+        icon: "📱",
+        title: "Hotspot Clients",
+        subtitle: "Anonymous downstream group",
+        status: downstream ? "AGGREGATE MEASURED" : "AWAITING DATA",
+        download: downstream?.download,
+        upload: downstream?.upload,
+        note: "Shared hotspot traffic; not individual device usage",
+      },
     },
-  },
-  {
-    id: "client-02",
-    type: "networkNode",
-    position: { x: 350, y: 460 },
-    data: {
-      kind: "client",
-      icon: "🖥️",
-      title: "Client 02",
-      subtitle: "Anonymous device",
-      status: "AWAITING CONNECTION",
-      download: "—",
-      upload: "—",
-      note: "Waiting for gateway telemetry",
-    },
-  },
-  {
-    id: "client-03",
-    type: "networkNode",
-    position: { x: 660, y: 460 },
-    data: {
-      kind: "client",
-      icon: "📺",
-      title: "Client 03",
-      subtitle: "Anonymous device",
-      status: "AWAITING CONNECTION",
-      download: "—",
-      upload: "—",
-      note: "Waiting for gateway telemetry",
-    },
-  },
-];
+  ];
 
-const initialEdges = [
-  {
-    id: "source-gateway",
-    source: "source",
-    target: "gateway",
-    label: "WAN",
-    markerEnd: { type: MarkerType.ArrowClosed },
-    style: { stroke: "#3b82f6", strokeWidth: 2 },
-  },
-  ...["client-01", "client-02", "client-03"].map((id) => ({
-    id: `gateway-${id}`,
-    source: "gateway",
-    target: id,
-    label: "Managed LAN",
-    markerEnd: { type: MarkerType.ArrowClosed },
-    style: {
-      stroke: "#10b981",
-      strokeWidth: 2,
-      strokeDasharray: "6 4",
+  const edges = [
+    {
+      id: "router-gateway",
+      source: "router",
+      target: "gateway",
+      label: "WAN",
+      markerEnd: { type: MarkerType.ArrowClosed },
+      style: { stroke: "#3b82f6", strokeWidth: 2 },
     },
-  })),
-];
+    {
+      id: "gateway-hotspot",
+      source: "gateway",
+      target: "hotspot",
+      label: "Downstream hotspot",
+      markerEnd: { type: MarkerType.ArrowClosed },
+      style: { stroke: "#10b981", strokeWidth: 2 },
+    },
+  ];
 
-export default function NetworkTopology() {
   return (
     <section className="topology-panel">
       <div className="topology-header">
         <div>
           <h2>Network Topology</h2>
-          <p>Internet source → Gateway → Anonymous clients</p>
+          <p>Internet source → Gateway → Hotspot clients</p>
         </div>
 
-        <span className="preview-badge">TOPOLOGY PREVIEW</span>
+        <span className="preview-badge">
+          LIVE AGGREGATE TELEMETRY
+        </span>
       </div>
 
       <div className="topology-canvas">
         <ReactFlow
-          nodes={initialNodes}
-          edges={initialEdges}
+          nodes={nodes}
+          edges={edges}
           nodeTypes={nodeTypes}
           fitView
-          fitViewOptions={{ padding: 0.15 }}
+          fitViewOptions={{ padding: 0.2 }}
           nodesDraggable={false}
           nodesConnectable={false}
           elementsSelectable={false}
@@ -184,8 +161,9 @@ export default function NetworkTopology() {
       </div>
 
       <p className="topology-disclaimer">
-        Placeholder clients are not actual connected devices.
-        Live traffic values will appear after gateway integration.
+        Router values are not directly measured. Gateway and hotspot
+        values are aggregate interface measurements. Individual
+        client traffic accounting is not yet implemented.
       </p>
     </section>
   );

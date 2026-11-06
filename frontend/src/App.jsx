@@ -15,25 +15,29 @@ const API_BASE = "http://127.0.0.1:8000";
 
 
 function App() {
+  const [hotspotData, setHotspotData] = useState([]);
   const [autoMonitoring, setAutoMonitoring] = useState(false);
   const inFlightRef = useRef(false);
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [collecting, setCollecting] = useState(false);
+
   const fetchHistory = useCallback(async () => {
     try {
-      const response = await fetch(
-        `${API_BASE}/api/v1/monitoring/history?limit=50`
-      );
+      const [upstreamResponse, hotspotResponse] = await Promise.all([
+        fetch(`${API_BASE}/api/v1/monitoring/history?limit=50`),
+        fetch(`${API_BASE}/api/v1/monitoring/hotspot/history?limit=50`)
+      ]);
 
-      if (!response.ok) {
-        throw new Error("Could not load monitoring data.");
+      if (!upstreamResponse.ok || !hotspotResponse.ok) {
+        throw new Error("Could not load network history.");
       }
 
-      const result = await response.json();
+      const upstreamResult = await upstreamResponse.json();
+      const hotspotResult = await hotspotResponse.json();
 
-      const formattedData = result.samples
+      const upstreamSamples = upstreamResult.samples
         .slice()
         .reverse()
         .map((sample) => ({
@@ -44,25 +48,43 @@ function App() {
           rtt: sample.rtt_avg_ms ?? 0,
           jitter: sample.rtt_jitter_avg_ms ?? 0,
           packetLoss: sample.packet_loss_percent ?? 0,
-          online: sample.internet_reachable === 1,
+          online:
+            sample.internet_reachable === 1 ||
+            sample.internet_reachable === true,
         }));
 
-      setData(formattedData);
+      const downstreamSamples = hotspotResult.samples
+        .slice()
+        .reverse()
+        .map((sample) => ({
+          id: sample.id,
+          time: new Date(sample.recorded_at).toLocaleTimeString(),
+          download: sample.download_mbps ?? 0,
+          upload: sample.upload_mbps ?? 0,
+        }));
+
+      setData(upstreamSamples);
+      setHotspotData(downstreamSamples);
       setError(null);
+
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
   }, []);
+
+
   const collectMeasurement = useCallback(async () => {
     if (inFlightRef.current) return;
 
     inFlightRef.current = true;
     setCollecting(true);
+    setError(null);
 
     try {
-      const response = await fetch(
+      // Collect laptop upstream measurements
+      const upstreamResponse = await fetch(
         `${API_BASE}/api/v1/monitoring/collect`,
         {
           method: "POST",
@@ -78,27 +100,43 @@ function App() {
         }
       );
 
-      if (!response.ok) {
-        const result = await response.json().catch(() => ({}));
-
-        throw new Error(
-          typeof result.detail === "string"
-            ? result.detail
-            : "Network measurement failed."
-        );
+      if (!upstreamResponse.ok) {
+        throw new Error("Upstream collection failed.");
       }
 
-      await response.json();
+      await upstreamResponse.json();
+
+      // Collect downstream hotspot measurements
+      const hotspotResponse = await fetch(
+        `${API_BASE}/api/v1/monitoring/hotspot/collect`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            sample_interval_seconds: 1,
+          }),
+        }
+      );
+
+      if (!hotspotResponse.ok) {
+        throw new Error("Hotspot collection failed.");
+      }
+
+      await hotspotResponse.json();
+
+      // Refresh both datasets
       await fetchHistory();
 
     } catch (err) {
       setError(err.message);
-
     } finally {
       inFlightRef.current = false;
       setCollecting(false);
     }
   }, [fetchHistory]);
+
 
   // Initial dashboard load
   useEffect(() => {
@@ -172,7 +210,10 @@ function App() {
           </div>
         </div>
       </header>
-      <NetworkTopology />
+      <NetworkTopology
+        upstream={data[data.length - 1]}
+        downstream={hotspotData[hotspotData.length - 1]}
+      />
 
       {data.length === 0 ? (
         <section className="chart-card empty-state">

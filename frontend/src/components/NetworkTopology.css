@@ -4,36 +4,178 @@
    Clean, compact and responsive node design
 ========================================= */
 
+
+
 .topology-panel {
   width: 100%;
-  background: #ffffff;
+  padding: 24px;
+  margin-bottom: 25px;
+  background: #fff;
   border: 1px solid #e2e8f0;
   border-radius: 14px;
-  padding: 22px;
-  margin-bottom: 24px;
   overflow: hidden;
 }
 
 .topology-header {
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 20px;
+  align-items: center;
+  margin-bottom: 24px;
+  gap: 15px;
 }
 
 .topology-header h2 {
   margin: 0;
+  font-size: 20px;
   color: #0f172a;
-  font-size: 19px;
-  font-weight: 700;
 }
 
 .topology-header p {
-  margin: 5px 0 0;
+  margin-top: 6px;
   color: #64748b;
   font-size: 13px;
 }
+
+.topology-canvas {
+  width: 100%;
+  height: 1000px;
+  min-height: 1000px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.network-node {
+  box-sizing: border-box;
+  width: 250px;
+  min-height: 165px;
+  padding: 16px;
+  background: #fff;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.07);
+}
+
+.network-node.router {
+  border-top: 4px solid #3b82f6;
+}
+
+.network-node.gateway {
+  border-top: 4px solid #10b981;
+}
+
+.network-node.client {
+  border-top: 4px solid #8b5cf6;
+}
+
+.node-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.node-icon {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f1f5f9;
+  border-radius: 9px;
+  font-size: 20px;
+}
+
+.node-heading strong {
+  display: block;
+  font-size: 14px;
+  color: #0f172a;
+}
+
+.node-heading small {
+  display: block;
+  margin-top: 5px;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.node-status {
+  display: inline-block;
+  margin-top: 13px;
+  padding: 6px 9px;
+  border-radius: 6px;
+  background: #f1f5f9;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.node-status.router {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.node-status.gateway {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.node-status.client {
+  background: #f5f3ff;
+  color: #6d28d9;
+}
+
+.node-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 15px;
+  padding-top: 12px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.node-metrics small {
+  display: block;
+  color: #64748b;
+  font-size: 11px;
+  margin-bottom: 6px;
+}
+
+.node-metrics strong {
+  display: block;
+  font-size: 14px;
+  color: #0f172a;
+}
+
+.node-note {
+  margin-top: 12px;
+  font-size: 10px;
+  color: #94a3b8;
+  line-height: 1.5;
+}
+
+.topology-disclaimer {
+  margin-top: 15px;
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+@media (max-width: 768px) {
+  .topology-panel {
+    padding: 14px;
+  }
+
+  .topology-canvas {
+    height: 850px;
+    min-height: 850px;
+  }
+
+  .network-node {
+    width: 220px;
+  }
+}
+
 
 .preview-badge {
   flex-shrink: 0;

@@ -9,8 +9,13 @@ explicitly approved public measurement endpoints.
 
 import time
 from datetime import datetime, timezone
+import psutil
+import time
+
+from datetime import datetime, timezone
 
 from network.telemetry.interface_stats import get_interface_stats
+from network.telemetry.metrics_store import MetricsStore
 from network.telemetry.bandwidth_monitor import calculate_rates
 from network.telemetry.connectivity_monitor import collect_connectivity
 from network.telemetry.network_quality import measure_target
@@ -105,7 +110,94 @@ def collect_and_store(
 
 
 def get_history(limit=100, db_path=DEFAULT_DB_PATH):
-    """Read historical aggregate network measurements."""
+    """Return upstream Wi-Fi measurements only."""
 
     store = MetricsStore(db_path)
-    return store.get_recent_samples(limit)
+
+    return store.get_samples_by_interface(
+        "Wi-Fi",
+        limit,
+    )
+
+
+def collect_hotspot_and_store(
+    adapter="Local Area Connection* 2",
+    sample_interval=1.0,
+    db_path=DEFAULT_DB_PATH,
+):
+    """
+    Collect aggregate Windows Mobile Hotspot traffic.
+
+    Host interface TX = downstream client download.
+    Host interface RX = downstream client upload.
+
+    Only the anonymous aggregate is stored.
+    The physical adapter name is not persisted.
+    """
+
+    if not 0 < sample_interval <= 5:
+        raise ValueError("Sample interval must be between 0 and 5 seconds.")
+
+    interface = psutil.net_if_stats().get(adapter)
+
+    if interface is None:
+        raise RuntimeError("Hotspot interface was not found.")
+
+    if not interface.isup:
+        raise RuntimeError("Hotspot interface is not active.")
+
+    previous = get_interface_stats(adapter)
+    start = time.monotonic()
+
+    time.sleep(sample_interval)
+
+    current = get_interface_stats(adapter)
+    elapsed = time.monotonic() - start
+
+    # Check that the interface remained active.
+    interface = psutil.net_if_stats().get(adapter)
+
+    if interface is None or not interface.isup:
+        raise RuntimeError("Hotspot disconnected during measurement.")
+
+    rates = calculate_rates(previous, current, elapsed)
+
+    # Interpret traffic from the connected client's perspective.
+    client_download = rates["upload_mbps"]
+    client_upload = rates["download_mbps"]
+
+    recorded_at = datetime.now(timezone.utc).isoformat()
+
+    sample = {
+        "recorded_at": recorded_at,
+        "interface_label": "hotspot-aggregate",
+        "download_mbps": client_download,
+        "upload_mbps": client_upload,
+        "adapter_up": True,
+        "internet_reachable": None,
+    }
+
+    store = MetricsStore(db_path)
+    sample_id = store.insert_sample(sample)
+
+    return {
+        "sample_id": sample_id,
+        "timestamp": recorded_at,
+        "source": "windows_mobile_hotspot",
+        "download_mbps": client_download,
+        "upload_mbps": client_upload,
+        "host_tx_bytes": rates["sent_bytes"],
+        "host_rx_bytes": rates["received_bytes"],
+        "scope": "anonymous_downstream_aggregate",
+    }
+
+
+def get_hotspot_history(limit=100, db_path=DEFAULT_DB_PATH):
+    """Return downstream hotspot measurements only."""
+
+    store = MetricsStore(db_path)
+
+    return store.get_samples_by_interface(
+        "hotspot-aggregate",
+        limit,
+    )
