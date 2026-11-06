@@ -98,4 +98,64 @@ footer {
     align-items: flex-start;
     gap: 15px;
   }
+
+  .header-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+
+
+.loading-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.error-screen {
+  flex-direction: column;
+}
+
+.error-screen button {
+  padding: 10px 18px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.offline {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.empty-state {
+  text-align: center;
+}
+
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.collect-button {
+  padding: 10px 18px;
+  border: none;
+  border-radius: 8px;
+  background: #2563eb;
+  color: white;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.collect-button:hover {
+  opacity: 0.9;
+}
+
+.collect-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }

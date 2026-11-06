@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   LineChart,
   Line,
@@ -10,16 +10,105 @@ import {
 } from "recharts";
 import "./App.css";
 
-const sampleData = [
-  { time: "09:43:04", download: 0.009, upload: 0.033, rtt: 11.6 },
-  { time: "09:43:10", download: 1.136, upload: 0.544, rtt: 12.4 },
-  { time: "09:43:16", download: 0.021, upload: 0.006, rtt: 10.8 },
-  { time: "09:43:19", download: 1.914, upload: 0.047, rtt: 14.2 },
-  { time: "09:43:20", download: 1.052, upload: 0.015, rtt: 11.6 },
-];
+const API_BASE = "http://127.0.0.1:8000";
+
 
 function App() {
-  const [data] = useState(sampleData);
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [collecting, setCollecting] = useState(false);
+  async function fetchHistory() {
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/v1/monitoring/history?limit=50`
+      );
+
+      if (!response.ok) {
+        throw new Error("Could not load monitoring data.");
+      }
+
+      const result = await response.json();
+
+      // API returns newest samples first.
+      // Reverse them so charts display oldest → newest.
+      const formattedData = result.samples
+        .slice()
+        .reverse()
+        .map((sample) => ({
+          id: sample.id,
+          time: new Date(sample.recorded_at).toLocaleTimeString(),
+          download: sample.download_mbps ?? 0,
+          upload: sample.upload_mbps ?? 0,
+          rtt: sample.rtt_avg_ms ?? 0,
+          jitter: sample.rtt_jitter_avg_ms ?? 0,
+          packetLoss: sample.packet_loss_percent ?? 0,
+          online: sample.internet_reachable === 1,
+        }));
+
+      setData(formattedData);
+      setError(null);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+  async function collectMeasurement() {
+    setCollecting(true);
+    setError(null);
+
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/v1/monitoring/collect`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            adapter: "Wi-Fi",
+            sample_interval_seconds: 1,
+            quality_target: "1.1.1.1",
+            quality_count: 5,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Could not collect a network measurement.");
+      }
+
+      await response.json();
+      await fetchHistory();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setCollecting(false);
+    }
+  }
+
+  useEffect(() => {
+    fetchHistory();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="dashboard loading-screen">
+        Loading network measurements...
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="dashboard loading-screen error-screen">
+        <h2>Unable to load monitoring data</h2>
+        <p>{error}</p>
+        <button onClick={fetchHistory}>Try Again</button>
+      </div>
+    );
+  }
 
   const latest = data[data.length - 1];
 
@@ -27,86 +116,117 @@ function App() {
     <div className="dashboard">
       <header>
         <div>
-          <h1>Network Baseline Monitor</h1>
-          <p>Local aggregate network monitoring</p>
+          <h1>Experience Budget</h1>
+          <p>Privacy-preserving network baseline monitoring</p>
         </div>
-        <div className="status">
+        <button
+          className="collect-button"
+          onClick={collectMeasurement}
+          disabled={collecting}
+        >
+          {collecting ? "Collecting..." : "Collect Now"}
+        </button>
+
+        <div className={`status ${latest?.online ? "" : "offline"}`}>
           <span className="status-dot"></span>
-          ONLINE
+          {latest?.online ? "ONLINE" : "NO DATA"}
         </div>
       </header>
 
-      <section className="metrics">
-        <div className="card">
-          <p>Download</p>
-          <h2>{latest.download} Mbps</h2>
-        </div>
+      {data.length === 0 ? (
+        <section className="chart-card empty-state">
+          <h2>No measurements yet</h2>
+          <p>
+            Collect a network measurement from the FastAPI API first.
+          </p>
+        </section>
+      ) : (
+        <>
+          <section className="metrics">
+            <div className="card">
+              <p>Download</p>
+              <h2>{latest.download.toFixed(3)} Mbps</h2>
+            </div>
 
-        <div className="card">
-          <p>Upload</p>
-          <h2>{latest.upload} Mbps</h2>
-        </div>
+            <div className="card">
+              <p>Upload</p>
+              <h2>{latest.upload.toFixed(3)} Mbps</h2>
+            </div>
 
-        <div className="card">
-          <p>Average RTT</p>
-          <h2>{latest.rtt} ms</h2>
-        </div>
+            <div className="card">
+              <p>Average RTT</p>
+              <h2>{latest.rtt.toFixed(1)} ms</h2>
+            </div>
 
-        <div className="card">
-          <p>Packet Loss</p>
-          <h2>0%</h2>
-        </div>
-      </section>
+            <div className="card">
+              <p>Packet Loss</p>
+              <h2>{latest.packetLoss.toFixed(1)}%</h2>
+            </div>
+          </section>
 
-      <section className="chart-card">
-        <h2>Bandwidth Usage</h2>
+          <section className="chart-card">
+            <h2>Bandwidth History</h2>
 
-        <ResponsiveContainer width="100%" height={320}>
-          <LineChart data={data}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="time" />
-            <YAxis />
-            <Tooltip />
-            <Line
-              type="monotone"
-              dataKey="download"
-              stroke="#2563eb"
-              strokeWidth={3}
-              name="Download Mbps"
-            />
-            <Line
-              type="monotone"
-              dataKey="upload"
-              stroke="#16a34a"
-              strokeWidth={3}
-              name="Upload Mbps"
-            />
-          </LineChart>
-        </ResponsiveContainer>
-      </section>
+            <ResponsiveContainer width="100%" height={320}>
+              <LineChart data={data}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="time" />
+                <YAxis />
+                <Tooltip />
+                <Line
+                  type="monotone"
+                  dataKey="download"
+                  stroke="#2563eb"
+                  strokeWidth={3}
+                  name="Download Mbps"
+                />
+                <Line
+                  type="monotone"
+                  dataKey="upload"
+                  stroke="#16a34a"
+                  strokeWidth={3}
+                  name="Upload Mbps"
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </section>
 
-      <section className="chart-card">
-        <h2>Network Latency</h2>
+          <section className="chart-card">
+            <h2>Network Quality History</h2>
 
-        <ResponsiveContainer width="100%" height={280}>
-          <LineChart data={data}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="time" />
-            <YAxis />
-            <Tooltip />
-            <Line
-              type="monotone"
-              dataKey="rtt"
-              stroke="#9333ea"
-              strokeWidth={3}
-              name="RTT (ms)"
-            />
-          </LineChart>
-        </ResponsiveContainer>
-      </section>
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={data}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="time" />
+                <YAxis />
+                <Tooltip />
+
+                <Line
+                  type="monotone"
+                  dataKey="rtt"
+                  stroke="#9333ea"
+                  strokeWidth={3}
+                  name="Average RTT (ms)"
+                />
+
+                <Line
+                  type="monotone"
+                  dataKey="jitter"
+                  stroke="#ea580c"
+                  strokeWidth={3}
+                  name="RTT Variation (ms)"
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </section>
+        </>
+      )}
 
       <footer>
-        <p>Scope: Local adapter aggregate monitoring only</p>
+        <p>
+          Scope: Local adapter aggregate monitoring only. No connected-device
+          identities or private traffic data are collected.
+        </p>
       </footer>
     </div>
   );
