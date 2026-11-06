@@ -1,32 +1,25 @@
-
-"""Experience Budget API entry point."""
-
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-from backend.app.api.monitoring import router as monitoring_router
+app = FastAPI(title="Network Baseline Monitor API")
 
-
-app = FastAPI(
-    title="Experience Budget",
-    description="Privacy-preserving household network monitoring",
-    version="0.6.0",
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
-
-app.include_router(monitoring_router)
 
 
 @app.get("/")
 def root():
     return {
-        "project": "Experience Budget",
-        "version": "0.6.0",
-        "mode": "baseline_monitoring",
+        "message": "Network Baseline Monitor API is running",
+        "scope": "local_aggregate_only",
     }
 
 
-@app.get("/health")
+@app.get("/api/health")
 def health():
-    return {
-        "status": "healthy",
-        "service": "experience-budget",
-    }
+    return {"status": "healthy"}
