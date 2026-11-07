@@ -46,6 +46,8 @@ if [[ -n "$UP" ]]; then
   ip netns exec "$NS" tc qdisc replace dev eth0 root tbf rate "${UP}mbit" \
     burst "$((UP * 2 + 100))kb" latency 400ms
   msg="$msg, upload limited to ${UP} Mbit/s"
+else
+  ip netns exec "$NS" tc qdisc del dev eth0 root 2>/dev/null || true
 fi
 
 echo "$msg"
