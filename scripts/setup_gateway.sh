@@ -37,5 +37,18 @@ for i in "${CLIENTS[@]}"; do
   ip netns exec "$ns" ip route add default via "${PREFIX}.1"
   echo "Created $ns (${PREFIX}.1${i})"
 done
+# DNS for each client (ip netns exec reads /etc/netns/<name>/resolv.conf)
+for i in "${CLIENTS[@]}"; do
+  mkdir -p "/etc/netns/client${i}"
+  echo "nameserver 1.1.1.1" > "/etc/netns/client${i}/resolv.conf"
+done
 
+# Internet access: forward + NAT out through the VM's default interface
+UPLINK=$(ip route show default | awk '{print $5; exit}')
+sysctl -qw net.ipv4.ip_forward=1
+nft delete table ip eb_nat 2>/dev/null || true
+nft add table ip eb_nat
+nft add chain ip eb_nat postrouting '{ type nat hook postrouting priority 100; }'
+nft add rule ip eb_nat postrouting ip saddr ${PREFIX}.0/24 oifname "$UPLINK" masquerade
+echo "NAT enabled via $UPLINK"
 echo "Lab ready."

@@ -7,6 +7,8 @@ fi
 
 for i in 1 2 3; do
   ip netns del "client${i}" 2>/dev/null || true
+  rm -rf "/etc/netns/client${i}"
 done
 ip link del br-lab 2>/dev/null || true
+nft delete table ip eb_nat 2>/dev/null || true
 echo "Lab removed."
