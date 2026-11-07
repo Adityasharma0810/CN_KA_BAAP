@@ -177,7 +177,7 @@ Unit tests:
 python -m pytest tests/ -v
 ```
 
-Observed before the controller tests were added: 40 passed (35 existing + 5 policy). With `tests/test_controller.py` added the suite should show 45 passed; the author confirmed the controller tests pass. Use `python -m pytest`, not plain `pytest`, so the `gateway` package imports.
+Observed before the controller tests were added: 40 passed (35 existing + 5 policy). With `tests/test_controller.py` added the suite should show 46 passed after the controller revision (35 existing, 5 policy, 6 controller); this count has not been confirmed yet. Use `python -m pytest`, not plain `pytest`, so the `gateway` package imports.
 
 Live run, with the API running:
 
@@ -202,8 +202,8 @@ curl -s localhost:8000/policy
 What to expect:
 
 - For the first few seconds both clients run unlimited; the policy reacts every 3 seconds.
-- Then the limits settle at about **76 / 19 / 5** Mbit/s for client1 (streaming), client2 (download) and client3 (browsing). Client3 is idle but the controller reserves it a 5 Mbit/s minimum, so the 100 Mbit/s budget is 5 for client3 and the remaining 95 split 4:1 by weight.
-- Observed: client2 capped at 19 (measured 17.6) and client3 at 5. The 76 for client1 follows from the same math and was confirmed by the author.
+- Then the limits settle at about **68 / 17** Mbit/s for client1 (streaming) and client2 (download), and client3 (idle) stays unlimited. The controller shapes at 90% of the 100 Mbit/s budget, reserves a 5 Mbit/s minimum for the idle client, and splits the remaining 85 Mbit/s 4:1 by weight.
+- Observed with the first controller version (which capped every client): client2 capped at 19 and client3 at 5. The expected limits above are for the revised controller, which caps only over-share clients; section 9A exercises it.
 - A download client running at 90% or more of its cap keeps its limit (anti-oscillation rule).
 - After the flows stop, limits should clear within a few seconds. Check with `curl -s localhost:8000/policy`.
 
@@ -214,6 +214,41 @@ To disable the policy and clear every limit:
 ```
 curl -X POST localhost:8000/policy -H "Content-Type: application/json" -d '{"enabled": false}'
 ```
+
+## 9A. Shared-bottleneck experiments
+
+These repeat the comparisons that produced the experiment tables in `REPO_AUDIT.md`. Both harnesses set the shared 100 Mbit/s bottleneck themselves and remove it at the end, even if a run fails.
+
+Prerequisites: the lab is up, the helper is installed (section 7), the API is running (section 8) with the revised controller, and iperf3 servers are listening on ports 5201 and 5202 (`ss -ltn | grep -E ':520[12]'`; start missing ones with `iperf3 -s -D` and `iperf3 -s -p 5202 -D`). Run from the repo root with the venv active.
+
+**Call vs download** (about 6 minutes). A 5 Mbit/s UDP call plus a ping probe against a 4-stream download, no policy vs intent policy:
+
+```
+sudo -v
+python3 experiments/run_call_vs_download.py --runs 5
+```
+
+Observed on the author's VM (mean +/- standard deviation over 5 runs): call RTT average 29.95 +/- 14.19 ms without the policy and 1.83 +/- 1.76 ms with it; download 88.0 Mbit/s without and 74.6 Mbit/s with; call loss about 0.25% in both.
+
+**Streaming vs download** (about 9 minutes). One TCP stream paced to 60 Mbit/s against a 4-stream download, in three modes (no policy, equal weights, intent weights):
+
+```
+sudo -v
+python3 experiments/run_streaming_vs_download.py --runs 5
+```
+
+Observed: streaming throughput 16.2 / 40.4 / 63.2 Mbit/s for no policy / equal / intent, with the download at 77.5 / 42.2 / 20.5 Mbit/s. If the script prints a warning that the streaming client exceeded its target rate, `iperf3 -b` is being ignored for TCP in reverse mode on your iperf3 version.
+
+**Outputs:** one CSV per run under `experiments/reports/`, and the raw iperf3 and ping output under `/tmp/eb_runs_<timestamp>` (or `eb_stream_runs_<timestamp>`). Modes are interleaved across repeats, and the first 8 seconds of every run are ignored so the policy has time to engage.
+
+**If a run is interrupted,** reset by hand:
+
+```
+curl -X POST localhost:8000/policy -H "Content-Type: application/json" -d '{"enabled": false}'
+sudo bash scripts/set_bottleneck.sh off
+```
+
+**Quick single run for debugging:** `bash scripts/call_vs_download.sh <label>` runs one call-vs-download test and prints the call result, the RTT summary, the download result, the policy state and the `tc` counters halfway through. Use `STREAMS=1` for a single download stream.
 
 ## 10. Optional: edit from Windows VS Code (Remote - SSH)
 
@@ -258,7 +293,7 @@ sudo rm /usr/local/sbin/eb-limit-client /etc/sudoers.d/experience-budget
 
 ## 13. Known limits of these results
 
-- The 100 Mbit/s budget is simulated; the virtual links have no natural bottleneck.
+- The 100 Mbit/s budget is simulated; the virtual links have no natural bottleneck. Section 9A adds a shared `tc` limit with a 50 ms queue so clients really compete; absolute latencies depend on that queue depth.
 - Intents are set by hand through the API. No classifier exists yet.
 - The clients are iperf3 flows in network namespaces, not real devices or realistic traffic.
 - The checks in `REPO_AUDIT.md`, finding 18, were confirmed by the author on 2026-11-07. They are manual runs, not automated tests.
