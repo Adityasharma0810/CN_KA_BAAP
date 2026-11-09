@@ -61,8 +61,8 @@ Tracked generated data exists under `data/capacity_forecasting/` and experiment 
 - [x] Repository audit and feature inventory.
 - [ ] Define common telemetry schema, provenance vocabulary, and UTC serialization.
 - [ ] Add anonymous client registry with memory-only address associations and privacy tests.
-- [ ] Extract robust Linux per-client counter collector with reset/disconnect handling.
-- [ ] Add rate calculation and telemetry-quality/staleness semantics.
+- [x] Extract robust Linux per-client counter collector with reset/disconnect handling.
+- [x] Add rate calculation and telemetry-quality/staleness semantics.
 - [ ] Migrate SQLite storage with aggregate/per-client separation and bounded queries.
 - [ ] Integrate observation routes and health checks into one FastAPI application.
 - [ ] Harden namespace/veth lab setup, reset, ownership, and dependency checks.

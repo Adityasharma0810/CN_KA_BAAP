@@ -4,25 +4,30 @@ import time
 from pathlib import Path
 
 from backend.app.services.client_registry import AnonymousClientRegistry
+from gateway.accounting import SysfsCounterReader, build_lab_inventory
 
 CLIENTS = [1, 2, 3]
 INTERVAL = 1.0
 
 # Runtime-only registry. IDs change on process restart and contain no device data.
 registry = AnonymousClientRegistry()
-anon_ids = {c: registry.register().client_id for c in CLIENTS}
+inventory = build_lab_inventory(registry, client_numbers=CLIENTS)
+anon_ids = {client.client_number: client.client_id for client in inventory}
+_counter_reader = SysfsCounterReader()
 
 
 def read_bytes(client: int) -> tuple[int, int]:
-    """Return (download_bytes, upload_bytes) for a client.
+    """Return (download_bytes, upload_bytes) for one lab client.
 
-    We read the bridge-side end of the veth cable, so directions flip:
-    what the bridge transmits is what the client downloads.
+    The shared reader observes only the gateway-side veth endpoint. Its TX
+    counters represent bytes sent toward the namespace (client download), and
+    RX counters represent bytes sent from the namespace (client upload).
     """
-    base = Path(f"/sys/class/net/veth-c{client}-br/statistics")
-    down = int((base / "tx_bytes").read_text())
-    up = int((base / "rx_bytes").read_text())
-    return down, up
+    config = next((item for item in inventory if item.client_number == client), None)
+    if config is None:
+        raise ValueError(f"Unknown lab client: {client}")
+    snapshot = _counter_reader(config.gateway_interface)
+    return snapshot.transmitted_bytes, snapshot.received_bytes
 
 
 def main() -> None:
