@@ -231,6 +231,7 @@ traffic_command() {
       traffic_stop_slot "$1"
       ;;
     stop-all)
+      shift
       [[ $# -eq 0 ]] || fail parse_error
       secure_runtime_dir
       local slot

@@ -1,0 +1,5 @@
+observed_at,scope,client_id,download_mbps,upload_mbps,rtt_ms,rtt_variation_ms,packet_loss_percent
+2026-11-09T22:48:27.482641+00:00,client,client-b688558167a07bce93b66e8edb20d29d,0.000232,0.11629,,,
+2026-11-09T22:48:27.482641+00:00,client,client-0a9b810be0e3d6e231c5d1f3e4ace70f,0.000185,0.000185,,,
+2026-11-09T22:48:27.482641+00:00,client,client-0f7bb10b10d529c958674c621e74ebc9,0.000185,0.000185,,,
+2026-11-09T22:48:22.402370+00:00,aggregate_gateway,,0.000602,0.11666,,,
