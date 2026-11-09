@@ -31,6 +31,7 @@ from backend.app.models.schemas import (
     ObservationScope,
     ObservationSource,
     TelemetryObservation,
+    ValueQuality,
 )
 
 
@@ -341,11 +342,14 @@ _OBSERVATION_INSERT = """
         packet_loss_percent,
         rtt_variation_ms,
         queue_depth_bytes,
-        queue_delay_ms
+        queue_delay_ms,
+        legacy_sample_id,
+        legacy_recorded_at
     )
     VALUES (
         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-        ?, ?, ?, ?, ?, ?, ?, ?, ?
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        ?
     )
 """
 
@@ -959,6 +963,8 @@ class MetricsStore:
             observation.rtt_variation_ms,
             observation.queue_depth_bytes,
             observation.queue_delay_ms,
+            None,
+            None,
         )
 
     @staticmethod
@@ -1497,10 +1503,56 @@ class MetricsStore:
 
         return row
 
+    @staticmethod
+    def _aggregate_observation_from_legacy(row):
+        """Map one validated legacy row to a shared aggregate observation."""
+
+        try:
+            observed_at = _parse_legacy_timestamp(row["recorded_at"])
+        except ValueError:
+            raise ValueError("Invalid timestamp.") from None
+
+        source, scope = _legacy_source_and_scope(row["interface_label"])
+        has_measurement = any(
+            row[field] is not None
+            for field in (
+                "download_mbps",
+                "upload_mbps",
+                "packet_loss_percent",
+                "rtt_avg_ms",
+                "rtt_jitter_avg_ms",
+            )
+        )
+
+        return TelemetryObservation(
+            metadata=ObservationMetadata(
+                observed_at=observed_at,
+                source=source,
+                scope=scope,
+                quality=(
+                    ValueQuality.MEASURED
+                    if has_measurement
+                    else ValueQuality.UNAVAILABLE
+                ),
+                environment=ObservationEnvironment.PHYSICAL_HOST,
+            ),
+            download_mbps=row["download_mbps"],
+            upload_mbps=row["upload_mbps"],
+            rtt_ms=row["rtt_avg_ms"],
+            packet_loss_percent=row["packet_loss_percent"],
+            rtt_variation_ms=row["rtt_jitter_avg_ms"],
+        )
+
     def insert_sample(self, sample):
-        """Validate and insert one aggregate measurement."""
+        """Validate and insert one aggregate measurement.
+
+        The legacy row remains the compatibility record. A canonical aggregate
+        observation is written in the same transaction and linked by
+        ``legacy_sample_id`` so migration cannot duplicate it later.
+        """
 
         row = self._validate(sample)
+        observation = self._aggregate_observation_from_legacy(row)
 
         placeholders = ", ".join("?" for _ in COLUMNS)
         columns = ", ".join(COLUMNS)
@@ -1510,6 +1562,7 @@ class MetricsStore:
         connection = self._connect()
 
         try:
+            connection.execute("BEGIN IMMEDIATE")
             cursor = connection.execute(
                 f"""
                 INSERT INTO network_samples ({columns})
@@ -1517,10 +1570,22 @@ class MetricsStore:
                 """,
                 values,
             )
+            sample_id = cursor.lastrowid
+
+            observation_values = self._observation_values(observation)
+            observation_values = (
+                observation_values[:-2]
+                + (sample_id, row["recorded_at"])
+            )
+            connection.execute(_OBSERVATION_INSERT, observation_values)
 
             connection.commit()
 
-            return cursor.lastrowid
+            return sample_id
+
+        except Exception:
+            connection.rollback()
+            raise
 
         finally:
             connection.close()
