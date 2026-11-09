@@ -140,23 +140,82 @@ function App() {
 
   // Initial dashboard load
   useEffect(() => {
-    fetchHistory();
-  }, [fetchHistory]);
+    let ignore = false;
+    const load = async () => {
+      try {
+        const [upstreamResponse, hotspotResponse] = await Promise.all([
+          fetch(`${API_BASE}/api/v1/monitoring/history?limit=50`),
+          fetch(`${API_BASE}/api/v1/monitoring/hotspot/history?limit=50`)
+        ]);
+
+        if (!upstreamResponse.ok || !hotspotResponse.ok) {
+          throw new Error("Could not load network history.");
+        }
+
+        const upstreamResult = await upstreamResponse.json();
+        const hotspotResult = await hotspotResponse.json();
+
+        if (ignore) return;
+
+        const upstreamSamples = upstreamResult.samples
+          .slice()
+          .reverse()
+          .map((sample) => ({
+            id: sample.id,
+            time: new Date(sample.recorded_at).toLocaleTimeString(),
+            download: sample.download_mbps ?? 0,
+            upload: sample.upload_mbps ?? 0,
+            rtt: sample.rtt_avg_ms ?? 0,
+            jitter: sample.rtt_jitter_avg_ms ?? 0,
+            packetLoss: sample.packet_loss_percent ?? 0,
+            online:
+              sample.internet_reachable === 1 ||
+              sample.internet_reachable === true,
+          }));
+
+        const downstreamSamples = hotspotResult.samples
+          .slice()
+          .reverse()
+          .map((sample) => ({
+            id: sample.id,
+            time: new Date(sample.recorded_at).toLocaleTimeString(),
+            download: sample.download_mbps ?? 0,
+            upload: sample.upload_mbps ?? 0,
+          }));
+
+        setData(upstreamSamples);
+        setHotspotData(downstreamSamples);
+        setError(null);
+      } catch (err) {
+        if (!ignore) setError(err.message);
+      } finally {
+        if (!ignore) setLoading(false);
+      }
+    };
+
+    load();
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   // Automatic monitoring
   useEffect(() => {
     if (!autoMonitoring) return;
 
     // Collect immediately when automatic monitoring starts.
-    collectMeasurement();
+    const startTimer = window.setTimeout(() => {
+      collectMeasurement();
+    }, 0);
 
     // Collect again every 15 seconds.
-    const timer = window.setInterval(() => {
+    const intervalTimer = window.setInterval(() => {
       collectMeasurement();
     }, 15000);
 
     return () => {
-      window.clearInterval(timer);
+      window.clearTimeout(startTimer);
+      window.clearInterval(intervalTimer);
     };
   }, [autoMonitoring, collectMeasurement]);
 
