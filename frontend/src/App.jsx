@@ -118,8 +118,18 @@ function MeasurementCard({ title, observation, aggregate = false }) {
   );
 }
 
-function StatusBar({ result }) {
+function StatusBar({ result, healthResult, capabilitiesResult }) {
   const gateway = result?.data;
+  const capabilities = capabilitiesResult?.data;
+  const healthComponents = healthResult?.data?.components;
+  const sourceErrors = {
+    application: healthComponents?.application?.error_code,
+    windows_host: healthComponents?.windows_host_collector?.error_code,
+    hotspot: healthComponents?.windows_hotspot_collector?.error_code,
+    linux_lab:
+      healthComponents?.gateway?.error_code ||
+      capabilities?.lab_ingest_last_error_code,
+  };
   const causedBy = gateway
     ? SOURCES.filter(([key]) => gateway[key]?.state !== "online")
         .map(([, label]) => label)
@@ -157,11 +167,53 @@ function StatusBar({ result }) {
                   <strong className={`state-label state-${item?.state || "unknown"}`}>
                     {stateText(item?.state)}
                   </strong>
-                  <small>Last observed: {displayTime(item?.last_observed_at)}</small>
-                  <small>Quality: {item?.data_quality || "unknown"}</small>
+                  <small
+                    title={
+                      sourceErrors[key]
+                        ? `Last safe error code: ${sourceErrors[key]}`
+                        : "No safe source error is currently reported."
+                    }
+                  >
+                    Last observed: {displayTime(item?.last_observed_at)}
+                  </small>
+                  <small
+                    title={
+                      sourceErrors[key]
+                        ? `Last safe error code: ${sourceErrors[key]}`
+                        : "No safe source error is currently reported."
+                    }
+                  >
+                    Quality: {item?.data_quality || "unknown"}
+                    {sourceErrors[key] ? ` · ${sourceErrors[key]}` : ""}
+                  </small>
                 </div>
               );
             })}
+          </div>
+          <div className="lab-ingest-status">
+            <strong>Linux lab ingest</strong>
+            <span className={`state-label state-${capabilities?.lab_ingest_state || "unknown"}`}>
+              {capabilities?.lab_ingest_state || "status unavailable"}
+            </span>
+            <small>
+              Last success: {displayTime(capabilities?.lab_ingest_last_success)}
+            </small>
+            <small>
+              Interval:{" "}
+              {capabilities?.lab_ingest_interval_seconds
+                ? `${capabilities.lab_ingest_interval_seconds} seconds`
+                : "unknown"}
+            </small>
+            {capabilities?.lab_ingest_last_error_code && (
+              <small>
+                Last safe error: {capabilities.lab_ingest_last_error_code}
+              </small>
+            )}
+            {capabilitiesResult?.error && (
+              <small className="error-text">
+                Capabilities unavailable: {capabilitiesResult.error.message}
+              </small>
+            )}
           </div>
         </>
       ) : (
@@ -236,7 +288,7 @@ function ClientMeasurements({ nodes, observations, result, topologyResult }) {
           <p>Client names and measurements are limited to anonymous lab data.</p>
         </div>
       </div>
-      <PanelFeedback result={result} title="Current observations" />
+      <PanelFeedback result={result} title="Current client observations" />
       {clients.length === 0 ? (
         !result?.loading && (
           <p className="empty-copy">
@@ -263,7 +315,7 @@ function ClientMeasurements({ nodes, observations, result, topologyResult }) {
                 </div>
                 <code className="client-id">{client.client_id}</code>
                 <div className="measurement-grid">
-                  {METRICS.slice(0, 5).map(([key, label, unit, digits]) => (
+                  {METRICS.map(([key, label, unit, digits]) => (
                     <div className="measurement-value" key={key}>
                       <span>{label}</span>
                       <strong>{formatValue(observation?.[key], unit, digits)}</strong>
@@ -273,6 +325,17 @@ function ClientMeasurements({ nodes, observations, result, topologyResult }) {
                 {observation ? (
                   <div className="measurement-meta">
                     <span>Observed {displayTime(observation.metadata.observed_at)}</span>
+                    <span
+                      className={`state-label state-${
+                        ["measured", "derived"].includes(
+                          observation.metadata.quality,
+                        )
+                          ? "healthy"
+                          : observation.metadata.quality
+                      }`}
+                    >
+                      Quality: {observation.metadata.quality}
+                    </span>
                     <Provenance metadata={observation.metadata} />
                   </div>
                 ) : (
@@ -443,7 +506,7 @@ function App() {
   const aggregateObservations = currentObservations.filter(
     (observation) => observation.metadata?.scope !== "client",
   );
-  const clientObservations = currentObservations.filter(
+  const clientObservations = observationRows(results.currentClients?.data).filter(
     (observation) => observation.metadata?.scope === "client",
   );
   const networkUnavailable = Object.values(results).some(
@@ -491,13 +554,15 @@ function App() {
           <h1>Experience Budget</h1>
           <p>Privacy-preserving, evidence-based network monitoring</p>
         </div>
-        <button
-          className="collect-button"
-          onClick={collectNow}
-          disabled={collecting}
-        >
-          {collecting ? "Collecting…" : "Collect now"}
-        </button>
+        {results.capabilities?.data?.windows_collectors_supported && (
+          <button
+            className="collect-button"
+            onClick={collectNow}
+            disabled={collecting}
+          >
+            {collecting ? "Collecting…" : "Collect now"}
+          </button>
+        )}
       </header>
 
       {networkUnavailable && (
@@ -512,7 +577,19 @@ function App() {
         </div>
       )}
 
-      <StatusBar result={results.gateway} />
+      {results.capabilities?.data &&
+        !results.capabilities.data.windows_collectors_supported && (
+          <div className="platform-note">
+            Windows host and hotspot collection requires a Windows-side
+            collector. This VM can collect Linux lab measurements.
+          </div>
+        )}
+
+      <StatusBar
+        result={results.gateway}
+        healthResult={results.health}
+        capabilitiesResult={results.capabilities}
+      />
 
       <ApiHealthPanel
         healthResult={results.health}
@@ -557,7 +634,7 @@ function App() {
       <ClientMeasurements
         nodes={nodes}
         observations={clientObservations}
-        result={results.current}
+        result={results.currentClients}
         topologyResult={results.topology}
       />
 

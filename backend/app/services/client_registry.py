@@ -89,14 +89,22 @@ class AnonymousClientRegistry:
         self._next_label = 1
         self._lock = threading.RLock()
 
-    def register(self) -> AnonymousClient:
-        """Register a new anonymous client with a unique opaque ID."""
+    def register(self, *, client_id: str | None = None) -> AnonymousClient:
+        """Register a client, optionally restoring its persisted opaque ID."""
 
         with self._lock:
-            while True:
-                client_id = f"client-{secrets.token_hex(self._token_bytes)}"
-                if client_id not in self._clients:
-                    break
+            if client_id is None:
+                while True:
+                    client_id = f"client-{secrets.token_hex(self._token_bytes)}"
+                    if client_id not in self._clients:
+                        break
+            else:
+                try:
+                    client_id = TypeAdapter(ClientId).validate_python(client_id)
+                except (TypeError, ValueError) as error:
+                    raise ValueError("invalid anonymous client ID") from error
+                if client_id in self._clients:
+                    raise ValueError("anonymous client ID is already registered")
             label = f"Client {self._next_label:02d}"
             self._next_label += 1
             self._clients[client_id] = _ClientRecord(client_id, label)

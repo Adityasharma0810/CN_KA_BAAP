@@ -96,6 +96,9 @@ export const getGatewayStatus = ({ signal } = {}) =>
 export const getTopology = ({ signal } = {}) =>
   request("/api/v1/network/topology", { signal });
 
+export const getSystemCapabilities = ({ signal } = {}) =>
+  request("/api/v1/system/capabilities", { signal });
+
 export const collectHostMeasurement = (options = {}) =>
   request("/api/v1/monitoring/collect", {
     ...options,

@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 import backend.app.services.health_service as health_service
 from backend.app.main import app
 from backend.app.models.schemas import TelemetryObservation
+from backend.app.services.lab_ingest_service import lab_ingest_service
 from network.telemetry.metrics_store import MetricsStore
 
 
@@ -47,9 +48,16 @@ def _use_database(monkeypatch, path) -> None:
     monkeypatch.setenv("EB_DATABASE_PATH", str(path))
 
 
+def _use_platform(monkeypatch, name: str) -> None:
+    monkeypatch.setattr(health_service.platform, "system", lambda: name)
+
+
 def test_health_reports_application_database_and_registry(monkeypatch, tmp_path):
     path = _database(tmp_path)
     _use_database(monkeypatch, path)
+    _use_platform(monkeypatch, "Linux")
+    monkeypatch.setattr(lab_ingest_service, "enabled", False)
+    monkeypatch.setattr(lab_ingest_service, "last_error_code", "lab_not_available")
 
     response = client.get("/api/v1/health")
 
@@ -62,14 +70,14 @@ def test_health_reports_application_database_and_registry(monkeypatch, tmp_path)
     assert body["components"]["client_registry"]["status"] == "healthy"
     assert body["components"]["client_registry"]["client_count"] >= 1
     assert body["components"]["gateway"]["status"] == "unavailable"
-    assert body["components"]["gateway"]["error_code"] == "gateway_not_configured"
+    assert body["components"]["gateway"]["error_code"] == "lab_not_available"
     assert (
         body["components"]["windows_host_collector"]["error_code"]
-        == "no_observations"
+        == "not_supported_on_platform"
     )
     assert (
         body["components"]["windows_hotspot_collector"]["error_code"]
-        == "no_observations"
+        == "not_supported_on_platform"
     )
 
 
@@ -163,6 +171,7 @@ def test_collectors_endpoint_lists_each_collector(monkeypatch, tmp_path):
 
 
 def test_health_reports_fresh_windows_observations(monkeypatch, tmp_path):
+    _use_platform(monkeypatch, "Windows")
     path = _database(tmp_path)
     store = MetricsStore(path)
     now = datetime.now(timezone.utc)
@@ -186,6 +195,7 @@ def test_health_reports_fresh_windows_observations(monkeypatch, tmp_path):
 
 
 def test_health_marks_stale_observations(monkeypatch, tmp_path):
+    _use_platform(monkeypatch, "Windows")
     path = _database(tmp_path)
     store = MetricsStore(path)
     old = datetime.now(timezone.utc) - timedelta(minutes=30)
@@ -211,6 +221,7 @@ def test_health_marks_stale_observations(monkeypatch, tmp_path):
 
 
 def test_health_marks_unknown_quality_as_degraded(monkeypatch, tmp_path):
+    _use_platform(monkeypatch, "Windows")
     path = _database(tmp_path)
     store = MetricsStore(path)
     store.save_observation(
@@ -230,6 +241,7 @@ def test_health_marks_unknown_quality_as_degraded(monkeypatch, tmp_path):
 
 
 def test_health_marks_unavailable_quality_as_degraded(monkeypatch, tmp_path):
+    _use_platform(monkeypatch, "Windows")
     path = _database(tmp_path)
     store = MetricsStore(path)
     store.save_observation(

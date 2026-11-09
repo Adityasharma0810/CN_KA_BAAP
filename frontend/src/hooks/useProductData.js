@@ -7,6 +7,7 @@ import {
   getGatewayStatus,
   getHealth,
   getObservationHistory,
+  getSystemCapabilities,
   getTopology,
 } from "../api/client";
 
@@ -34,6 +35,7 @@ export default function useProductData({
     health: { loading: true },
     collectors: { loading: true },
     current: { loading: true },
+    currentClients: { loading: true },
     gateway: { loading: true },
     topology: { loading: true },
     history: { loading: true },
@@ -59,8 +61,13 @@ export default function useProductData({
         ["health", () => getHealth({ signal })],
         ["collectors", () => getCollectorHealth({ signal })],
         ["current", () => getCurrentObservations({}, { signal })],
+        [
+          "currentClients",
+          () => getCurrentObservations({ scope: "client" }, { signal }),
+        ],
         ["gateway", () => getGatewayStatus({ signal })],
         ["topology", () => getTopology({ signal })],
+        ["capabilities", () => getSystemCapabilities({ signal })],
         ["history", () => getObservationHistory(historyParams, { signal })],
       ];
 

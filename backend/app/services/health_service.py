@@ -8,6 +8,7 @@ data. Missing measurements are reported as unavailable, never as zero.
 from __future__ import annotations
 
 import sqlite3
+import platform
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -27,6 +28,7 @@ from backend.app.models.api_responses import (
     RegistryHealth,
 )
 from backend.app.services.lab_accounting_service import lab_accounting_service
+from backend.app.services.lab_ingest_service import lab_ingest_service
 from network.telemetry.metrics_store import (
     CorruptDatabaseError,
     MetricsStore,
@@ -147,6 +149,19 @@ def _probe_collector(
 ) -> CollectorHealth:
     """Report one collector from its newest canonical observation."""
 
+    if (
+        collector
+        in (CollectorName.WINDOWS_HOST, CollectorName.WINDOWS_HOTSPOT)
+        and platform.system().lower() != "windows"
+    ):
+        return CollectorHealth(
+            collector=collector,
+            status=ComponentStatus.UNAVAILABLE,
+            error_code="not_supported_on_platform",
+            last_success_at=None,
+            stale=False,
+        )
+
     if store is None:
         return CollectorHealth(
             collector=collector,
@@ -224,14 +239,50 @@ def _probe_collector(
     )
 
 
-def _gateway_health() -> ComponentHealth:
-    """Report the not-yet-integrated read-only gateway adapter honestly."""
+def _linux_gateway_health(
+    store: MetricsStore | None,
+    *,
+    now: datetime,
+) -> CollectorHealth:
+    """Combine canonical gateway freshness with the ingest worker state."""
 
-    return ComponentHealth(
-        status=ComponentStatus.UNAVAILABLE,
-        error_code="gateway_not_configured",
-        last_success_at=None,
+    if not lab_ingest_service.enabled:
+        return CollectorHealth(
+            collector=CollectorName.LINUX_GATEWAY,
+            status=ComponentStatus.UNAVAILABLE,
+            error_code=lab_ingest_service.last_error_code or "lab_ingest_disabled",
+            last_success_at=lab_ingest_service.last_success_at,
+            stale=False,
+        )
+
+    if lab_ingest_service.last_error_code == "lab_not_available":
+        return CollectorHealth(
+            collector=CollectorName.LINUX_GATEWAY,
+            status=ComponentStatus.UNAVAILABLE,
+            error_code="lab_not_available",
+            last_success_at=lab_ingest_service.last_success_at,
+            stale=False,
+        )
+
+    stored = _probe_collector(
+        store,
+        collector=CollectorName.LINUX_GATEWAY,
+        source="linux_gateway",
+        scope="aggregate_gateway",
+        now=now,
     )
+    if lab_ingest_service.last_error_code is not None:
+        return stored.model_copy(
+            update={
+                "status": ComponentStatus.DEGRADED,
+                "error_code": lab_ingest_service.last_error_code,
+                "last_success_at": (
+                    lab_ingest_service.last_success_at
+                    or stored.last_success_at
+                ),
+            }
+        )
+    return stored
 
 
 def _registry_health() -> RegistryHealth:
@@ -290,16 +341,18 @@ def _snapshot(
             scope="aggregate_hotspot",
             now=now,
         ),
-        _probe_collector(
+        _linux_gateway_health(
             store,
-            collector=CollectorName.LINUX_GATEWAY,
-            source="linux_gateway",
-            scope="aggregate_gateway",
             now=now,
         ),
     ]
 
-    gateway = _gateway_health()
+    gateway_collector = collectors[2]
+    gateway = ComponentHealth(
+        status=gateway_collector.status,
+        error_code=gateway_collector.error_code,
+        last_success_at=gateway_collector.last_success_at,
+    )
     registry = _registry_health()
 
     def component(collector: CollectorHealth) -> ComponentHealth:

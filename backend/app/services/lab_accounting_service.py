@@ -32,14 +32,41 @@ class LabAccountingService:
         )
         self._lock = Lock()
 
+    def is_available(self) -> bool:
+        """Return whether any configured lab counter interface currently exists."""
+
+        return any(
+            (Path(self.collector.reader.sys_class_net) / client.gateway_interface).exists()
+            for client in self.inventory
+        )
+
+    def configure_persisted_clients(
+        self, persisted_client_ids: dict[int, str]
+    ) -> None:
+        """Restore stable anonymous IDs from canonical storage before ingest."""
+
+        with self._lock:
+            self.registry.reset()
+            numbers = client_numbers_from_environment()
+            for number in numbers:
+                self.registry.register(
+                    client_id=persisted_client_ids.get(number)
+                )
+            reader = self.collector.reader
+            self.inventory = build_lab_inventory(
+                self.registry,
+                client_numbers=numbers,
+            )
+            self.collector = PerClientAccountingCollector(
+                self.inventory,
+                self.registry,
+                reader=reader,
+            )
+
     def collect(self) -> dict:
         """Return genuine client observations, or an explicit unavailable state."""
 
-        interfaces = [
-            Path(self.collector.reader.sys_class_net) / client.gateway_interface
-            for client in self.inventory
-        ]
-        if not any(interface.exists() for interface in interfaces):
+        if not self.is_available():
             return {
                 "available": False,
                 "source": "linux_namespace_lab",

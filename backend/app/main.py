@@ -1,5 +1,8 @@
 """Experience Budget API entry point."""
 
+import os
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -7,23 +10,49 @@ from backend.app.api.clients import router as clients_router
 from backend.app.api.monitoring import router as monitoring_router
 from backend.app.api.topology import router as topology_router
 from backend.app.api.v1 import router as observation_router
+from backend.app.services.lab_ingest_service import lab_ingest_service
+
+
+def _allowed_origins() -> list[str]:
+    defaults = {
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:5174",
+    }
+    configured = os.environ.get("EB_CORS_ORIGINS", "")
+    return sorted(
+        defaults
+        | {
+            origin.strip().rstrip("/")
+            for origin in configured.split(",")
+            if origin.strip()
+        }
+    )
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """Run the optional Linux lab ingester for the life of the API."""
+
+    lab_ingest_service.start()
+    try:
+        yield
+    finally:
+        await lab_ingest_service.stop()
 
 
 app = FastAPI(
     title="Experience Budget",
     description="Privacy-preserving household network monitoring",
     version="0.7.0",
+    lifespan=lifespan,
 )
 
 # Allow the local React development server to call this API.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://localhost:5174",
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:5174",
-    ],
+    allow_origins=_allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
