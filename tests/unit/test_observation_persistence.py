@@ -204,7 +204,7 @@ def test_batch_validation_failure_writes_nothing(store):
         simulated_lab_slot=1,
     )
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValueError, match="invalid observation"):
         store.save_observations(
             [
                 aggregate_observation(),

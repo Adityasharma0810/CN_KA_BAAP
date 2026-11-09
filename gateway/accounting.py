@@ -155,7 +155,7 @@ class SysfsCounterReader:
                 observed_at=timestamp,
             )
         except (FileNotFoundError, NotADirectoryError, PermissionError, ValueError) as error:
-            raise RuntimeError(f"counter interface unavailable: {interface}") from error
+            raise RuntimeError("counter interface unavailable") from error
 
 
 @dataclass(frozen=True)
@@ -212,7 +212,7 @@ class PerClientAccountingCollector:
                 self._previous[client.client_id] = current
                 self._previous_time[client.client_id] = current_time
                 quality = ValueQuality.MEASURED if rates.valid else ValueQuality.UNAVAILABLE
-                error = None if rates.valid else f"rate unavailable: {rates.reason}"
+                error = None if rates.valid else f"rate_unavailable:{rates.reason}"
                 observation = self._observation(
                     client,
                     current,
@@ -223,11 +223,15 @@ class PerClientAccountingCollector:
                 )
                 self.registry.observe(observation)
                 results.append(ClientMeasurement(client.client_id, client.gateway_interface, observation, rates.reason))
-            except (RuntimeError, ValueError, OSError) as error:
+            except (RuntimeError, ValueError, OSError):
                 results.append(ClientMeasurement(
                     client.client_id,
                     client.gateway_interface,
-                    self._unavailable_observation(client, timestamp, str(error)),
+                    self._unavailable_observation(
+                        client,
+                        timestamp,
+                        "interface_unavailable",
+                    ),
                     "interface_unavailable",
                 ))
         return results

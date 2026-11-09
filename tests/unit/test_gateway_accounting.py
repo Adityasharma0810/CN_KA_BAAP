@@ -144,6 +144,11 @@ def test_collector_isolates_client_counters_and_keeps_idle_zero():
     second = collector.collect(now=T0.replace(second=2))
 
     assert all(item.observation.download_mbps is None for item in first)
+    assert all(
+        item.observation.metadata.collector_error
+        == "rate_unavailable:no_baseline"
+        for item in first
+    )
     by_id = {item.client_id: item.observation for item in second}
     assert by_id[inventory[0].client_id].download_bytes == 1_000
     assert by_id[inventory[0].client_id].upload_bytes == 0
@@ -178,6 +183,13 @@ def test_counter_reset_and_missing_interface_do_not_stop_other_clients():
     second = collector.collect(now=T0.replace(second=1))
     by_id = {item.client_id: item for item in second}
     assert by_id[inventory[1].client_id].rate_reason == "interface_unavailable"
+    assert (
+        by_id[inventory[1].client_id].observation.metadata.collector_error
+        == "interface_unavailable"
+    )
+    assert "veth" not in str(
+        by_id[inventory[1].client_id].observation.model_dump(mode="json")
+    ).lower()
     assert by_id[inventory[0].client_id].observation.metadata.quality == "unavailable"
     assert by_id[inventory[2].client_id].observation.metadata.quality == "unavailable"
 

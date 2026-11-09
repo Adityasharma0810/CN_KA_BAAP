@@ -15,7 +15,14 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    ValidationError,
+    field_validator,
+)
 
 from backend.app.models.schemas import (
     ClientId,
@@ -898,7 +905,10 @@ class MetricsStore:
 
     def _observation_values(self, observation):
         if isinstance(observation, dict):
-            observation = TelemetryObservation.model_validate(observation)
+            try:
+                observation = TelemetryObservation.model_validate(observation)
+            except ValidationError:
+                raise ValueError("invalid observation") from None
         elif not isinstance(observation, TelemetryObservation):
             raise TypeError("observation must be a TelemetryObservation or mapping")
 
