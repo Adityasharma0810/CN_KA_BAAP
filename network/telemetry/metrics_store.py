@@ -22,12 +22,14 @@ from backend.app.models.schemas import (
     ObservationEnvironment,
     ObservationMetadata,
     ObservationScope,
+    ObservationSource,
     TelemetryObservation,
 )
 
 
 DEFAULT_DB_PATH = "data/experience_budget.sqlite3"
 SCHEMA_VERSION = 1
+MAX_HISTORY_LIMIT = 1000
 OBSERVATIONS_TABLE = "telemetry_observations"
 CLIENTS_TABLE = "anonymous_clients"
 
@@ -1076,6 +1078,309 @@ class MetricsStore:
             ).fetchone()
 
             return self._observation_from_row(row) if row is not None else None
+
+        finally:
+            connection.close()
+
+    def _history_arguments(
+        self,
+        *,
+        scope,
+        client_id,
+        source,
+        environment,
+        start,
+        end,
+        aggregate_only,
+    ):
+        if not isinstance(aggregate_only, bool):
+            raise ValueError("aggregate_only must be a boolean")
+
+        if client_id is not None:
+            client_id = self._coerce_client_id(client_id)
+
+        if scope is not None:
+            try:
+                scope = ObservationScope(scope)
+            except (TypeError, ValueError) as error:
+                raise ValueError("invalid observation scope") from error
+
+        if client_id is not None:
+            if scope is None:
+                scope = ObservationScope.CLIENT
+            elif scope != ObservationScope.CLIENT:
+                raise ValueError("client_id requires client scope")
+
+        if aggregate_only:
+            if scope is not None and scope not in (
+                ObservationScope.AGGREGATE_GATEWAY,
+                ObservationScope.AGGREGATE_HOTSPOT,
+            ):
+                raise ValueError("aggregate_only cannot be combined with client scope")
+
+        if source is not None:
+            try:
+                source = ObservationSource(source)
+            except (TypeError, ValueError) as error:
+                raise ValueError("invalid observation source") from error
+
+        if environment is not None:
+            try:
+                environment = ObservationEnvironment(environment)
+            except (TypeError, ValueError) as error:
+                raise ValueError("invalid observation environment") from error
+
+        start = self._coerce_history_timestamp(start, "start")
+        end = self._coerce_history_timestamp(end, "end")
+
+        if start is not None and end is not None and start > end:
+            raise ValueError("start must not follow end")
+
+        clauses = []
+        parameters = []
+
+        if aggregate_only:
+            clauses.append("scope IN (?, ?)")
+            parameters.extend(
+                [
+                    ObservationScope.AGGREGATE_GATEWAY.value,
+                    ObservationScope.AGGREGATE_HOTSPOT.value,
+                ]
+            )
+        elif scope is not None:
+            clauses.append("scope = ?")
+            parameters.append(scope.value)
+
+        if client_id is not None:
+            clauses.append("client_id = ?")
+            parameters.append(client_id)
+
+        if source is not None:
+            clauses.append("source = ?")
+            parameters.append(source.value)
+
+        if environment is not None:
+            clauses.append("environment = ?")
+            parameters.append(environment.value)
+
+        if start is not None:
+            clauses.append("observed_at >= ?")
+            parameters.append(start.isoformat())
+
+        if end is not None:
+            clauses.append("observed_at <= ?")
+            parameters.append(end.isoformat())
+
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        return where, parameters
+
+    @staticmethod
+    def _coerce_history_timestamp(value, field_name):
+        if value is None:
+            return None
+        if isinstance(value, str):
+            if not value.strip():
+                raise ValueError(f"{field_name} must not be empty")
+            try:
+                value = datetime.fromisoformat(
+                    value.strip().replace("Z", "+00:00")
+                )
+            except ValueError as error:
+                raise ValueError(
+                    f"{field_name} must be an ISO 8601 timestamp"
+                ) from error
+        return MetricsStore._coerce_utc(value, field_name)
+
+    @staticmethod
+    def _history_pagination(order, limit, offset):
+        if not isinstance(order, str):
+            raise ValueError("order must be 'oldest' or 'newest'")
+        normalized = order.strip().lower()
+        if normalized in ("asc", "oldest"):
+            direction = "ASC"
+        elif normalized in ("desc", "newest"):
+            direction = "DESC"
+        else:
+            raise ValueError("order must be 'oldest' or 'newest'")
+
+        if (
+            isinstance(limit, bool)
+            or not isinstance(limit, int)
+            or limit < 1
+            or limit > MAX_HISTORY_LIMIT
+        ):
+            raise ValueError(
+                f"limit must be between 1 and {MAX_HISTORY_LIMIT}"
+            )
+        if (
+            isinstance(offset, bool)
+            or not isinstance(offset, int)
+            or offset < 0
+        ):
+            raise ValueError("offset must be a non-negative integer")
+
+        return direction, limit, offset
+
+    def query_history(
+        self,
+        *,
+        scope=None,
+        client_id=None,
+        source=None,
+        environment=None,
+        start=None,
+        end=None,
+        aggregate_only=False,
+        order="newest",
+        limit=100,
+        offset=0,
+    ):
+        """Return bounded, filtered observations in deterministic order."""
+
+        direction, limit, offset = self._history_pagination(
+            order, limit, offset
+        )
+        where, parameters = self._history_arguments(
+            scope=scope,
+            client_id=client_id,
+            source=source,
+            environment=environment,
+            start=start,
+            end=end,
+            aggregate_only=aggregate_only,
+        )
+
+        connection = self._connect()
+
+        try:
+            rows = connection.execute(
+                f"""
+                SELECT * FROM telemetry_observations
+                {where}
+                ORDER BY observed_at {direction}, id {direction}
+                LIMIT ? OFFSET ?
+                """,
+                (*parameters, limit, offset),
+            ).fetchall()
+
+            return [self._observation_from_row(row) for row in rows]
+
+        finally:
+            connection.close()
+
+    def get_aggregate_history(
+        self,
+        *,
+        scope=None,
+        source=None,
+        environment=None,
+        start=None,
+        end=None,
+        order="newest",
+        limit=100,
+        offset=0,
+    ):
+        """Return aggregate observations only, never per-client rows."""
+
+        return self.query_history(
+            scope=scope,
+            source=source,
+            environment=environment,
+            start=start,
+            end=end,
+            aggregate_only=True,
+            order=order,
+            limit=limit,
+            offset=offset,
+        )
+
+    def get_client_history(
+        self,
+        client_id,
+        *,
+        source=None,
+        environment=None,
+        start=None,
+        end=None,
+        order="newest",
+        limit=100,
+        offset=0,
+    ):
+        """Return observations for exactly one anonymous client."""
+
+        return self.query_history(
+            scope=ObservationScope.CLIENT,
+            client_id=client_id,
+            source=source,
+            environment=environment,
+            start=start,
+            end=end,
+            order=order,
+            limit=limit,
+            offset=offset,
+        )
+
+    def get_history_by_source(
+        self,
+        source,
+        *,
+        scope=None,
+        client_id=None,
+        environment=None,
+        start=None,
+        end=None,
+        order="newest",
+        limit=100,
+        offset=0,
+    ):
+        """Return observations from one explicit source."""
+
+        return self.query_history(
+            scope=scope,
+            client_id=client_id,
+            source=source,
+            environment=environment,
+            start=start,
+            end=end,
+            order=order,
+            limit=limit,
+            offset=offset,
+        )
+
+    def count_observations(
+        self,
+        *,
+        scope=None,
+        client_id=None,
+        source=None,
+        environment=None,
+        start=None,
+        end=None,
+        aggregate_only=False,
+    ):
+        """Count observations matching the same filters as query_history."""
+
+        where, parameters = self._history_arguments(
+            scope=scope,
+            client_id=client_id,
+            source=source,
+            environment=environment,
+            start=start,
+            end=end,
+            aggregate_only=aggregate_only,
+        )
+
+        connection = self._connect()
+
+        try:
+            row = connection.execute(
+                f"""
+                SELECT COUNT(*) FROM telemetry_observations
+                {where}
+                """,
+                parameters,
+            ).fetchone()
+            return int(row[0])
 
         finally:
             connection.close()
