@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CartesianGrid,
   Line,
@@ -11,6 +11,8 @@ import {
 import {
   collectHostMeasurement,
   collectHotspotMeasurement,
+  startScenario,
+  stopScenario,
 } from "./api/client";
 import NetworkTopology from "./components/NetworkTopology";
 import useProductData, { HISTORY_LIMIT } from "./hooks/useProductData";
@@ -212,6 +214,30 @@ function StatusBar({ result, healthResult, capabilitiesResult }) {
             {capabilitiesResult?.error && (
               <small className="error-text">
                 Capabilities unavailable: {capabilitiesResult.error.message}
+              </small>
+            )}
+            <strong>ICMP latency probe</strong>
+            <span
+              className={`state-label state-${
+                capabilities?.latency_probe_state || "unknown"
+              }`}
+            >
+              {capabilities?.latency_probe_state || "status unavailable"}
+            </span>
+            <small>
+              Last success:{" "}
+              {displayTime(capabilities?.latency_probe_last_success)}
+            </small>
+            {capabilities?.latency_probe_last_error_code && (
+              <small>
+                Last safe error:{" "}
+                {capabilities.latency_probe_last_error_code}
+              </small>
+            )}
+            {capabilities?.latency_probe_state === "helper_missing" && (
+              <small>
+                Install the restricted helper once:{" "}
+                <code>sudo bash scripts/privileged/install_eb_priv.sh</code>
               </small>
             )}
           </div>
@@ -492,6 +518,199 @@ function HistoryPanel({
   );
 }
 
+function ScenarioLab({ result, onRefresh }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const [now, setNow] = useState(0);
+  const catalog = result?.data;
+  const status = catalog?.status;
+  const active = ["starting", "running", "stopping"].includes(status?.state);
+
+  useEffect(() => {
+    if (!active) return undefined;
+    const updateTime = () => setNow(Date.now());
+    updateTime();
+    const timer = window.setInterval(updateTime, 1000);
+    return () => window.clearInterval(timer);
+  }, [active]);
+
+  const runAction = async (scenarioId) => {
+    setBusy(true);
+    setError(null);
+    try {
+      if (scenarioId) await startScenario(scenarioId);
+      else await stopScenario();
+      onRefresh();
+    } catch (actionError) {
+      setError(
+        actionError?.status === 503
+          ? {
+              message: "The restricted helper is missing or unavailable.",
+              install: true,
+            }
+          : { message: actionError?.message || "Scenario request failed." },
+      );
+    } finally {
+      setBusy(false);
+      onRefresh();
+    }
+  };
+
+  const remaining = status?.ends_at
+    ? Math.max(0, Math.ceil((new Date(status.ends_at).getTime() - now) / 1000))
+    : null;
+
+  return (
+    <section className="panel" aria-labelledby="scenario-heading">
+      <div className="section-heading">
+        <div>
+          <h2 id="scenario-heading">Scenario Lab</h2>
+          <p>Start bounded namespace traffic explicitly; no scenario starts automatically.</p>
+        </div>
+      </div>
+      <PanelFeedback result={result} title="Scenario catalogue" />
+      {status && (
+        <div className="scenario-status">
+          <strong>Runner</strong>
+          <span className={`state-label state-${status.state}`}>{status.state}</span>
+          {status.scenario_id && <span>Scenario: {status.scenario_id}</span>}
+          {remaining !== null && active && <span>Time remaining: {remaining}s</span>}
+          {status.error_code && <span className="error-text">Last safe error: {status.error_code}</span>}
+          {status.manifest_id && <span>Manifest id: <code>{status.manifest_id}</code></span>}
+        </div>
+      )}
+      {(status?.install_command || status?.error_code === "helper_missing") && (
+        <p className="cap-notice">
+          Install the restricted helper once:{" "}
+          <code>sudo bash scripts/privileged/install_eb_priv.sh</code>
+        </p>
+      )}
+      {status?.phases?.length > 0 && (
+        <ol className="scenario-timeline" aria-label="Scenario phase timeline">
+          {status.phases.map((phase) => (
+            <li key={phase.name}>
+              <strong>{phase.name.replaceAll("_", " ")}</strong>
+              <span>at {phase.at_seconds}s · {phase.action}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+      {error && (
+        <div className="backend-banner error-banner" role="alert">
+          {error.message}
+          {error.install && (
+            <p>
+              Install the helper once: <code>sudo bash scripts/privileged/install_eb_priv.sh</code>
+            </p>
+          )}
+        </div>
+      )}
+      <div className="scenario-actions">
+        {(catalog?.scenarios || []).map((scenario) => (
+          <div className="scenario-option" key={scenario.id}>
+            <div>
+              <strong>{scenario.name}</strong>
+              <p>{scenario.description}</p>
+            </div>
+            <button
+              className="collect-button"
+              onClick={() => runAction(scenario.id)}
+              disabled={active || busy || !catalog}
+            >
+              Start
+            </button>
+          </div>
+        ))}
+        <button
+          className="scenario-stop"
+          onClick={() => runAction(null)}
+          disabled={!active || busy}
+        >
+          Stop scenario
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function QoEScorecard({ clients, result, historyResult }) {
+  const scores = new Map(
+    (result?.data?.clients || []).map((item) => [item.client_id, item]),
+  );
+  const history = historyResult?.data?.observations || [];
+  return (
+    <section className="panel">
+      <div className="section-heading">
+        <div>
+          <h2>QoE scorecard</h2>
+          <p>Documented proxy scores, not standardized MOS. Classes come only from an active declared scenario.</p>
+        </div>
+      </div>
+      <PanelFeedback result={result} title="QoE scores" />
+      {clients.length === 0 ? (
+        <p className="empty-copy">No anonymous lab clients are available.</p>
+      ) : (
+        <div className="qoe-grid">
+          {clients.map((client) => {
+            const score = scores.get(client.client_id);
+            const samples = history
+              .filter((item) => item.client_id === client.client_id && item.score !== null)
+              .slice()
+              .reverse();
+            const points = samples.map((item, index) => {
+              const x = samples.length < 2 ? 50 : (index / (samples.length - 1)) * 100;
+              const y = 30 - (item.score / 100) * 28;
+              return `${x},${y}`;
+            }).join(" ");
+            return (
+              <article className="qoe-card" key={client.client_id}>
+                <h3>{client.label}</h3>
+                <p>
+                  Class: <strong>{score?.traffic_class || "unknown"}</strong>
+                  {" · "}
+                  {score?.class_source === "scenario_declared"
+                    ? "scenario declared"
+                    : "unclassified"}
+                </p>
+                <div className="qoe-score">
+                  {score?.score === null || score?.score === undefined ? (
+                    <strong>unknown</strong>
+                  ) : (
+                    <strong>{score.score.toFixed(1)} / 100</strong>
+                  )}
+                  <span className={`qoe-band qoe-${score?.band || "unknown"}`}>
+                    {score?.band || "unknown"}
+                  </span>
+                </div>
+                {!score || score.score === null ? (
+                  <p className="qoe-missing">
+                    unknown (needs: {(score?.missing_inputs || ["stored observations"]).join(", ")})
+                  </p>
+                ) : null}
+                <div className="qoe-inputs">
+                  {Object.entries(score?.inputs || {}).map(([name, input]) => (
+                    <span key={name}>
+                      {name.replaceAll("_", " ")}: {input.value} {input.unit}
+                      {" · "}{displayTime(input.observed_at)}
+                    </span>
+                  ))}
+                </div>
+                {samples.length > 0 ? (
+                  <svg className="qoe-sparkline" viewBox="0 0 100 32" role="img" aria-label="QoE score history">
+                    <polyline points={points} />
+                  </svg>
+                ) : (
+                  <p className="empty-copy">No scored history yet.</p>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function App() {
   const [historyRangeValue, setHistoryRangeValue] = useState("24h");
   const [selectedClientId, setSelectedClientId] = useState("");
@@ -636,6 +855,17 @@ function App() {
         observations={clientObservations}
         result={results.currentClients}
         topologyResult={results.topology}
+      />
+
+      <ScenarioLab
+        result={results.scenarios}
+        onRefresh={() => setRefreshToken((token) => token + 1)}
+      />
+
+      <QoEScorecard
+        clients={clientNodes}
+        result={results.qoe}
+        historyResult={results.qoeHistory}
       />
 
       <NetworkTopology result={results.topology} />

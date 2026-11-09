@@ -1,0 +1,345 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+LC_ALL=C
+export LC_ALL
+
+readonly LAB_STATE_FILE=/run/experience-budget/lab.state
+readonly RUNTIME_DIR=/run/experience-budget
+readonly HELPER_STATE_DIR=/run/experience-budget/eb-priv
+readonly IPERF3=/usr/bin/iperf3
+readonly IP=/usr/sbin/ip
+readonly TC=/usr/sbin/tc
+
+fail() {
+  printf 'fail %s\n' "$1"
+  exit 1
+}
+
+probe() {
+  if [[ $# -ne 1 ]]; then
+    fail parse_error
+  fi
+
+  local slot="$1"
+  local namespace="client${slot}"
+  local bridge
+  local gateway
+  local output
+  local status
+  local sent
+  local received
+  local average
+  local variation
+
+  [[ "$slot" =~ ^[1-9]$ ]] || fail parse_error
+  [[ -r "$LAB_STATE_FILE" ]] || fail no_namespace
+  if ! bridge="$(/usr/bin/awk '$1 == "bridge" { print $2; exit }' "$LAB_STATE_FILE")"; then
+    fail no_namespace
+  fi
+  [[ "$bridge" =~ ^[A-Za-z0-9_.-]{1,15}$ ]] || fail no_namespace
+  if ! /usr/bin/awk -v namespace="$namespace" \
+    '$1 == "namespace" && $2 == namespace { found = 1 } END { exit !found }' \
+    "$LAB_STATE_FILE"; then
+    fail no_namespace
+  fi
+  if ! /usr/sbin/ip netns list 2>/dev/null |
+    /usr/bin/awk -v namespace="$namespace" '$1 == namespace { found = 1 } END { exit !found }'; then
+    fail no_namespace
+  fi
+
+  if ! gateway="$(
+    /usr/sbin/ip -o -4 address show dev "$bridge" 2>/dev/null |
+      /usr/bin/awk '$3 == "inet" { sub(/\/.*/, "", $4); print $4; exit }'
+  )"; then
+    fail parse_error
+  fi
+  [[ "$gateway" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || fail parse_error
+
+  if output="$(/usr/bin/timeout 4 /usr/sbin/ip netns exec "$namespace" \
+    /usr/bin/ping -n -c 5 -i 0.2 -W 1 "$gateway" 2>/dev/null)"; then
+    status=0
+  else
+    status=$?
+  fi
+  [[ "$status" -ne 124 && "$status" -ne 137 ]] || fail timeout
+
+  if [[ "$output" =~ ([0-9]+)[[:space:]]packets[[:space:]]transmitted,[[:space:]]([0-9]+)[[:space:]]received ]]; then
+    sent="${BASH_REMATCH[1]}"
+    received="${BASH_REMATCH[2]}"
+  else
+    fail parse_error
+  fi
+  [[ "$sent" == 5 && "$received" =~ ^[0-5]$ ]] || fail parse_error
+  [[ "$received" -gt 0 ]] || fail no_reply
+
+  if [[ "$output" =~ ([0-9]+([.][0-9]+)?)/([0-9]+([.][0-9]+)?)/([0-9]+([.][0-9]+)?)/([0-9]+([.][0-9]+)?)[[:space:]]ms ]]; then
+    average="${BASH_REMATCH[3]}"
+    variation="${BASH_REMATCH[7]}"
+  else
+    fail parse_error
+  fi
+  printf 'ok %s %s %s %s\n' "$sent" "$received" "$average" "$variation"
+}
+
+configured_slot() {
+  local slot="$1"
+  local count
+  [[ "$slot" =~ ^[1-9][0-9]?$ ]] || return 1
+  [[ -r "$LAB_STATE_FILE" ]] || return 1
+  count="$(/usr/bin/awk '$1 == "namespace" { n++ } END { print n+0 }' "$LAB_STATE_FILE")"
+  (( slot <= count )) || return 1
+  /usr/bin/awk -v namespace="client${slot}" \
+    '$1 == "namespace" && $2 == namespace { found=1 } END { exit !found }' \
+    "$LAB_STATE_FILE" &&
+    /usr/sbin/ip netns list 2>/dev/null |
+      /usr/bin/awk -v namespace="client${slot}" \
+        '$1 == namespace { found=1 } END { exit !found }'
+}
+
+secure_runtime_dir() {
+  /usr/bin/install -d -o root -g root -m 0700 "$HELPER_STATE_DIR" \
+    >/dev/null 2>&1 || fail parse_error
+  [[ ! -L "$HELPER_STATE_DIR" ]] || fail parse_error
+  [[ "$(/usr/bin/stat -c '%U:%G:%a' "$HELPER_STATE_DIR" 2>/dev/null)" == root:root:700 ]] ||
+    fail parse_error
+}
+
+gateway_address() {
+  local bridge
+  bridge="$(/usr/bin/awk '$1 == "bridge" { print $2; exit }' "$LAB_STATE_FILE")"
+  [[ "$bridge" =~ ^[A-Za-z0-9_.-]{1,15}$ ]] || return 1
+  /usr/sbin/ip -o -4 address show dev "$bridge" 2>/dev/null |
+    /usr/bin/awk '$3 == "inet" { sub(/\/.*/, "", $4); print $4; exit }'
+}
+
+pid_is_helper_iperf() {
+  local pid="$1"
+  local kind="$2"
+  local command_line
+  [[ "$pid" =~ ^[1-9][0-9]*$ && -r "/proc/${pid}/cmdline" ]] || return 1
+  command_line="$(/usr/bin/tr '\0' ' ' < "/proc/${pid}/cmdline")"
+  [[ "$command_line" == *"$IPERF3"* ]] || return 1
+  if [[ "$kind" == client ]]; then
+    [[ "$command_line" == *"netns exec client"* ]]
+  else
+    [[ "$command_line" == *" --server "* || "$command_line" == *" -s "* ]]
+  fi
+}
+
+stop_pidfile() {
+  local file="$1"
+  local kind="$2"
+  local pid
+  [[ -f "$file" ]] || return 0
+  IFS= read -r pid < "$file" || {
+    /usr/bin/rm -f -- "$file"
+    return 0
+  }
+  if pid_is_helper_iperf "$pid" "$kind"; then
+    /usr/bin/kill -TERM -- "-${pid}" 2>/dev/null ||
+      /usr/bin/kill -TERM "$pid" 2>/dev/null || true
+  fi
+  /usr/bin/rm -f -- "$file"
+}
+
+traffic_stop_slot() {
+  local slot="$1"
+  local client_file="${HELPER_STATE_DIR}/client-${slot}.pid"
+  local server_file="${HELPER_STATE_DIR}/server-${slot}.pid"
+  stop_pidfile "$client_file" client
+  stop_pidfile "$server_file" server
+  printf 'ok traffic_stopped %s\n' "$slot"
+}
+
+traffic_start() {
+  [[ $# -eq 3 ]] || fail parse_error
+  local slot="$1"
+  local profile="$2"
+  local seconds="$3"
+  local namespace="client${slot}"
+  local gateway
+  local port
+  local client_file
+  local server_file
+  local client_pid
+  local server_pid
+  local -a profile_args
+
+  [[ "$slot" =~ ^[1-9][0-9]?$ ]] || fail parse_error
+  [[ "$seconds" =~ ^([5-9]|[1-9][0-9]|1[01][0-9]|120)$ ]] || fail parse_error
+  case "$profile" in
+    call) profile_args=(-u -b 100K -l 128) ;;
+    game) profile_args=(-u -b 256K -l 256) ;;
+    stream) profile_args=(-b 8M) ;;
+    bulk) profile_args=() ;;
+    *) fail parse_error ;;
+  esac
+  configured_slot "$slot" || fail no_namespace
+
+  secure_runtime_dir
+  gateway="$(gateway_address)" || fail no_namespace
+  [[ "$gateway" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || fail no_namespace
+  port=$((5200 + 10#$slot))
+  client_file="${HELPER_STATE_DIR}/client-${slot}.pid"
+  server_file="${HELPER_STATE_DIR}/server-${slot}.pid"
+  stop_pidfile "$client_file" client
+
+  server_pid=""
+  if [[ -r "$server_file" ]]; then
+    IFS= read -r server_pid < "$server_file" || server_pid=""
+  fi
+  if [[ ! "$server_pid" =~ ^[1-9][0-9]*$ ]] ||
+    ! pid_is_helper_iperf "$server_pid" server; then
+    /usr/bin/rm -f -- "$server_file"
+    /usr/bin/setsid /usr/bin/timeout --signal=TERM --kill-after=2 \
+      "$seconds" "$IPERF3" --server --bind "$gateway" --port "$port" \
+      </dev/null >/dev/null 2>&1 &
+    server_pid=$!
+    printf '%s\n' "$server_pid" > "$server_file"
+    /usr/bin/sleep 0.1
+    pid_is_helper_iperf "$server_pid" server || {
+      /usr/bin/rm -f -- "$server_file"
+      fail server_unavailable
+    }
+  fi
+
+  /usr/bin/setsid /usr/bin/timeout --signal=TERM --kill-after=2 \
+    "$seconds" "$IP" netns exec "$namespace" "$IPERF3" \
+    --client "$gateway" --port "$port" --time "$seconds" \
+    "${profile_args[@]}" >/dev/null 2>&1 &
+  client_pid=$!
+  printf '%s\n' "$client_pid" > "$client_file"
+  printf 'ok traffic_started %s\n' "$slot"
+}
+
+traffic_command() {
+  [[ $# -ge 1 ]] || fail parse_error
+  case "$1" in
+    start)
+      shift
+      traffic_start "$@"
+      ;;
+    stop)
+      shift
+      [[ $# -eq 1 ]] || fail parse_error
+      [[ "$1" =~ ^[1-9][0-9]?$ ]] || fail parse_error
+      secure_runtime_dir
+      traffic_stop_slot "$1"
+      ;;
+    stop-all)
+      [[ $# -eq 0 ]] || fail parse_error
+      secure_runtime_dir
+      local slot
+      local pidfile
+      for pidfile in "$HELPER_STATE_DIR"/client-*.pid; do
+        [[ -f "$pidfile" ]] || continue
+        slot="${pidfile##*/client-}"
+        slot="${slot%.pid}"
+        [[ "$slot" =~ ^[1-9][0-9]?$ ]] || continue
+        traffic_stop_slot "$slot" >/dev/null
+      done
+      for pidfile in "$HELPER_STATE_DIR"/server-*.pid; do
+        [[ -f "$pidfile" ]] || continue
+        slot="${pidfile##*/server-}"
+        slot="${slot%.pid}"
+        [[ "$slot" =~ ^[1-9][0-9]?$ ]] || continue
+        stop_pidfile "$pidfile" server
+      done
+      printf 'ok traffic_stopped_all\n'
+      ;;
+    *)
+      fail parse_error
+      ;;
+  esac
+}
+
+bottleneck_command() {
+  [[ $# -eq 1 ]] || fail parse_error
+  local rate="$1"
+  local bridge
+  local saved="${HELPER_STATE_DIR}/bottleneck-original"
+  if [[ "$rate" != off ]]; then
+    case "$rate" in 100|50|20|10|5) ;; *) fail parse_error ;; esac
+  fi
+  bridge="$(/usr/bin/awk '$1 == "bridge" { print $2; exit }' "$LAB_STATE_FILE" 2>/dev/null)"
+  [[ "$bridge" =~ ^[A-Za-z0-9_.-]{1,15}$ ]] || fail no_namespace
+  secure_runtime_dir
+  if [[ "$rate" == off ]]; then
+    if [[ -r "$saved" ]]; then
+      local previous
+      IFS= read -r previous < "$saved" || previous=""
+      case "$previous" in
+        noqueue)
+          "$TC" qdisc del dev "$bridge" root >/dev/null 2>&1 || true
+          ;;
+        off)
+          "$TC" qdisc del dev "$bridge" root >/dev/null 2>&1 || true
+          ;;
+        tbf:[1-9]*)
+          local previous_rate="${previous#tbf:}"
+          [[ "$previous_rate" =~ ^[1-9][0-9]{0,5}$ ]] || fail bottleneck_state_unsupported
+          "$TC" qdisc replace dev "$bridge" root tbf rate "${previous_rate}mbit" \
+            burst "$((10#$previous_rate * 2 + 100))kb" latency 50ms \
+            >/dev/null 2>&1 || fail bottleneck_failed
+          ;;
+        *)
+          fail bottleneck_state_unsupported
+          ;;
+      esac
+      /usr/bin/rm -f -- "$saved"
+    else
+      printf 'ok bottleneck_off\n'
+      return
+    fi
+    printf 'ok bottleneck_off\n'
+    return
+  fi
+
+  if [[ ! -e "$saved" ]]; then
+    local qdisc_line
+    local previous_rate
+    local previous_burst
+    qdisc_line="$("$TC" qdisc show dev "$bridge" 2>/dev/null |
+      /usr/bin/awk '$3 == "root" { print; exit }')"
+    if [[ "$qdisc_line" =~ ^qdisc[[:space:]]+noqueue[[:space:]].*[[:space:]]root([[:space:]].*)?$ ]]; then
+      printf 'noqueue\n' > "$saved"
+    elif [[ "$qdisc_line" =~ ^qdisc[[:space:]]+tbf[[:space:]][^[:space:]]+:[[:space:]]root[[:space:]]refcnt[[:space:]][0-9]+[[:space:]]rate[[:space:]]([1-9][0-9]{0,5})Mbit[[:space:]]burst[[:space:]]([0-9]+)Kb[[:space:]]lat[[:space:]]50ms$ ]]; then
+      previous_rate="${BASH_REMATCH[1]}"
+      previous_burst="${BASH_REMATCH[2]}"
+      [[ "$previous_burst" -eq $((10#$previous_rate * 2 + 100)) ]] ||
+        fail bottleneck_state_unsupported
+      printf 'tbf:%s\n' "$previous_rate" > "$saved"
+    else
+      fail bottleneck_state_unsupported
+    fi
+  fi
+  "$TC" qdisc replace dev "$bridge" root tbf rate "${rate}mbit" \
+    burst "$((10#$rate * 2 + 100))kb" latency 50ms >/dev/null 2>&1 ||
+    fail bottleneck_failed
+  printf 'ok bottleneck %s\n' "$rate"
+}
+
+if [[ $# -lt 1 ]]; then
+  fail parse_error
+fi
+
+subcommand="$1"
+shift
+case "$subcommand" in
+  probe)
+    probe "$@"
+    ;;
+  traffic)
+    traffic_command "$@"
+    ;;
+  bottleneck)
+    bottleneck_command "$@"
+    ;;
+  *)
+    fail parse_error
+    ;;
+esac

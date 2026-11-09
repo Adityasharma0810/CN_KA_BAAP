@@ -12,6 +12,7 @@ import backend.app.services.health_service as health_service
 from backend.app.main import app
 from backend.app.models.schemas import TelemetryObservation
 from backend.app.services.lab_ingest_service import lab_ingest_service
+from backend.app.services.latency_probe_service import latency_probe_service
 from network.telemetry.metrics_store import MetricsStore
 
 
@@ -259,6 +260,43 @@ def test_health_marks_unavailable_quality_as_degraded(monkeypatch, tmp_path):
     assert host["status"] == "degraded"
     assert host["error_code"] == "collector_reported_unavailable"
     assert host["last_success_at"] is None
+
+
+def test_linux_gateway_health_includes_latency_probe_failure(
+    monkeypatch, tmp_path
+):
+    path = _database(tmp_path)
+    store = MetricsStore(path)
+    store.save_observation(
+        TelemetryObservation(
+            metadata={
+                "observed_at": datetime.now(timezone.utc),
+                "source": "linux_gateway",
+                "scope": "aggregate_gateway",
+                "quality": "derived",
+                "environment": "simulated_lab",
+            },
+            download_mbps=1.0,
+            upload_mbps=1.0,
+        )
+    )
+    _use_database(monkeypatch, path)
+    _use_platform(monkeypatch, "Linux")
+    monkeypatch.setattr(lab_ingest_service, "enabled", True)
+    monkeypatch.setattr(lab_ingest_service, "last_error_code", None)
+    monkeypatch.setattr(latency_probe_service, "enabled", True)
+    monkeypatch.setattr(latency_probe_service, "_state", "failing")
+    monkeypatch.setattr(latency_probe_service, "last_error_code", "no_reply")
+
+    response = client.get("/api/v1/health/collectors")
+
+    gateway = next(
+        item
+        for item in response.json()["collectors"]
+        if item["collector"] == "linux_gateway"
+    )
+    assert gateway["status"] == "degraded"
+    assert gateway["error_code"] == "latency_probe_no_reply"
 
 
 def test_health_reports_registry_failure_safely(monkeypatch, tmp_path):

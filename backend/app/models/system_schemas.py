@@ -20,6 +20,13 @@ class LabIngestState(str, Enum):
     STOPPED = "stopped"
 
 
+class LatencyProbeState(str, Enum):
+    RUNNING = "running"
+    DISABLED = "disabled"
+    HELPER_MISSING = "helper_missing"
+    FAILING = "failing"
+
+
 class SystemCapabilitiesResponse(BaseModel):
     model_config = ConfigDict(extra="forbid", use_enum_values=True)
 
@@ -36,10 +43,30 @@ class SystemCapabilitiesResponse(BaseModel):
         pattern=r"^[a-z][a-z0-9_.:-]{0,99}$",
     )
     observation_freshness_threshold_seconds: int = Field(ge=1)
+    latency_probe_enabled: bool
+    latency_probe_state: LatencyProbeState
+    latency_probe_last_success: datetime | None
+    latency_probe_last_error_code: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=100,
+        pattern=r"^[a-z][a-z0-9_.:-]{0,99}$",
+    )
 
     @field_validator("lab_ingest_last_success")
     @classmethod
     def normalize_last_success(
+        cls, value: datetime | None
+    ) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("timestamp must include a timezone")
+        return value.astimezone(timezone.utc)
+
+    @field_validator("latency_probe_last_success")
+    @classmethod
+    def normalize_latency_last_success(
         cls, value: datetime | None
     ) -> datetime | None:
         if value is None:

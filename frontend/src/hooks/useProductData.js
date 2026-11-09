@@ -7,6 +7,9 @@ import {
   getGatewayStatus,
   getHealth,
   getObservationHistory,
+  getCurrentQoe,
+  getQoeHistory,
+  getScenarioCatalog,
   getSystemCapabilities,
   getTopology,
 } from "../api/client";
@@ -40,6 +43,9 @@ export default function useProductData({
     topology: { loading: true },
     history: { loading: true },
     clientHistory: { loading: true },
+    scenarios: { loading: true },
+    qoe: { loading: true },
+    qoeHistory: { loading: true },
   });
 
   useEffect(() => {
@@ -68,6 +74,9 @@ export default function useProductData({
         ["gateway", () => getGatewayStatus({ signal })],
         ["topology", () => getTopology({ signal })],
         ["capabilities", () => getSystemCapabilities({ signal })],
+        ["scenarios", () => getScenarioCatalog({ signal })],
+        ["qoe", () => getCurrentQoe({ signal })],
+        ["qoeHistory", () => getQoeHistory({ limit: 100 }, { signal })],
         ["history", () => getObservationHistory(historyParams, { signal })],
       ];
 

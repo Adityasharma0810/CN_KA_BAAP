@@ -1,5 +1,6 @@
 import asyncio
-from datetime import datetime, timezone
+import subprocess
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 from pathlib import Path
 from threading import Event, Lock
@@ -10,6 +11,7 @@ from backend.app.models.schemas import TelemetryObservation
 from backend.app.services.client_registry import AnonymousClientRegistry
 from backend.app.services.lab_ingest_service import LabIngestService
 from backend.app.services.lab_accounting_service import LabAccountingService
+from backend.app.services.latency_probe_service import LatencyProbeService
 from backend.app.services.observation_query_service import build_current_observations
 from backend.app.services.topology_service import TopologyService
 from gateway.accounting import LabClientConfig
@@ -81,7 +83,7 @@ def _worker(tmp_path, accounting=None, **options):
     worker = LabIngestService(
         accounting=accounting or FakeAccounting(),
         db_path_provider=lambda: database,
-        clock=lambda: NOW,
+        clock=options.pop("clock", lambda: NOW),
         platform_name="linux",
         enabled=True,
         **options,
@@ -112,8 +114,17 @@ async def test_success_persists_client_and_aggregate_observations(tmp_path):
     assert result.error_code is None
     assert len(clients) == 2
     assert len(gateway) == 1
+    assert {
+        row.observation.metadata.observed_at for row in clients
+    } == {gateway[0].observation.metadata.observed_at}
     assert gateway[0].observation.download_mbps == 3.75
     assert gateway[0].observation.upload_mbps == 0.75
+    assert gateway[0].observation.download_mbps == pytest.approx(
+        sum(row.observation.download_mbps for row in clients), abs=1e-6
+    )
+    assert gateway[0].observation.upload_mbps == pytest.approx(
+        sum(row.observation.upload_mbps for row in clients), abs=1e-6
+    )
     assert gateway[0].observation.metadata.quality == "derived"
     assert all(
         store.get_simulated_client_by_slot(slot) is not None
@@ -215,6 +226,97 @@ async def test_unavailable_rate_samples_keep_nulls_and_measured_zero(tmp_path):
     assert zero_result.error_code is None
     assert zero_gateway.observation.download_mbps == 0.0
     assert zero_gateway.observation.upload_mbps == 0.0
+
+
+@run_async
+async def test_ingest_merges_fresh_probe_metrics_without_extra_rows(tmp_path):
+    accounting = FakeAccounting()
+    probe_service = LatencyProbeService(
+        accounting=accounting,
+        runner=lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="ok 5 4 10.5 0.7\n",
+        ),
+        clock=lambda: NOW,
+        platform_name="linux",
+    )
+    await probe_service.probe_once()
+    worker, database = _worker(
+        tmp_path,
+        accounting=accounting,
+        probe_service=probe_service,
+    )
+
+    await worker.collect_once()
+    store = MetricsStore(database)
+    rows = store.get_history_by_source(
+        "linux_namespace_lab", scope="client", order="oldest"
+    )
+
+    assert len(rows) == len(accounting.inventory)
+    assert all(row.observation.rtt_ms == 10.5 for row in rows)
+    assert all(row.observation.rtt_variation_ms == 0.7 for row in rows)
+    assert all(row.observation.packet_loss_percent == 20.0 for row in rows)
+
+
+@run_async
+async def test_ingest_leaves_probe_metrics_null_after_failure_or_staleness(tmp_path):
+    accounting = FakeAccounting()
+
+    def failed_runner(*_args, **_kwargs):
+        return subprocess.CompletedProcess(
+            args=[],
+            returncode=1,
+            stdout="fail no_reply\n",
+        )
+
+    failed_probe = LatencyProbeService(
+        accounting=accounting,
+        runner=failed_runner,
+        clock=lambda: NOW,
+        platform_name="linux",
+    )
+    await failed_probe.probe_once()
+    failed_worker, failed_db = _worker(
+        tmp_path / "failed",
+        accounting=accounting,
+        probe_service=failed_probe,
+    )
+    await failed_worker.collect_once()
+    failed_rows = MetricsStore(failed_db).get_history_by_source(
+        "linux_namespace_lab", scope="client"
+    )
+    assert all(
+        row.observation.rtt_ms is None
+        and row.observation.rtt_variation_ms is None
+        and row.observation.packet_loss_percent is None
+        for row in failed_rows
+    )
+    assert failed_probe.last_error_code == "no_reply"
+
+    fresh_probe = LatencyProbeService(
+        accounting=accounting,
+        runner=lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="ok 5 5 2 0.2\n",
+        ),
+        clock=lambda: NOW,
+        platform_name="linux",
+    )
+    await fresh_probe.probe_once()
+    stale_worker, stale_db = _worker(
+        tmp_path / "stale",
+        accounting=accounting,
+        probe_service=fresh_probe,
+        clock=lambda: NOW + timedelta(seconds=16),
+    )
+    await stale_worker.collect_once()
+    stale_rows = MetricsStore(stale_db).get_history_by_source(
+        "linux_namespace_lab", scope="client"
+    )
+    assert all(row.observation.rtt_ms is None for row in stale_rows)
 
 
 @run_async

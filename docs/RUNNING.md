@@ -27,6 +27,34 @@ second). At the default interval and three lab clients, expect about 7,200
 observation rows per hour: three client rows plus one aggregate row per cycle.
 Storage has no automatic deletion or retention cleanup.
 
+For per-client ICMP RTT, RTT variation, and packet-loss metrics, install the
+restricted helper once:
+
+```bash
+sudo bash scripts/privileged/install_eb_priv.sh
+```
+
+These are ICMP network-layer indicators, not application-level loss or
+latency. See [PRIVILEGED_HELPER.md](./PRIVILEGED_HELPER.md) for its permissions
+and removal command.
+
+The Scenario Lab uses the same restricted helper to run fixed, duration-
+bounded traffic profiles and adjust the bridge bottleneck to one of five
+rates. Re-install it after helper changes with the same command above.
+Starting a scenario is an explicit dashboard action; every run stops traffic
+and restores the bottleneck when stopped, completed, or the backend shuts
+down. Each run stores a manifest and an observations CSV in
+`data/scenario_runs/<run_id>/`.
+
+QoE bands are documented proxies, not MOS; missing RTT/jitter/loss/rate
+inputs result in an unknown score. See [QOE_FORMULAS.md](./QOE_FORMULAS.md).
+
+The Linux gateway rate is the sum of each client's rate from the same
+accounting cycle. It reads one gateway-side veth endpoint per client, not both
+ends. Therefore a gateway total can be several times one client's rate when
+other clients are also transferring data. Separate API requests can also land
+on adjacent polling cycles.
+
 ## Opening it from the Windows browser
 
 ### VirtualBox NAT port forwarding

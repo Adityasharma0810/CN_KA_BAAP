@@ -29,6 +29,7 @@ from backend.app.models.api_responses import (
 )
 from backend.app.services.lab_accounting_service import lab_accounting_service
 from backend.app.services.lab_ingest_service import lab_ingest_service
+from backend.app.services.latency_probe_service import latency_probe_service
 from network.telemetry.metrics_store import (
     CorruptDatabaseError,
     MetricsStore,
@@ -280,6 +281,26 @@ def _linux_gateway_health(
                     lab_ingest_service.last_success_at
                     or stored.last_success_at
                 ),
+            }
+        )
+    if latency_probe_service.enabled and latency_probe_service.state == "failing":
+        return stored.model_copy(
+            update={
+                "status": ComponentStatus.DEGRADED,
+                "error_code": (
+                    "latency_probe_"
+                    + (latency_probe_service.last_error_code or "probe_failed")
+                ),
+            }
+        )
+    if (
+        latency_probe_service.state == "helper_missing"
+        and stored.status == ComponentStatus.HEALTHY
+    ):
+        return stored.model_copy(
+            update={
+                "status": ComponentStatus.DEGRADED,
+                "error_code": "latency_probe_helper_missing",
             }
         )
     return stored

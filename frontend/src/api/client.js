@@ -99,6 +99,25 @@ export const getTopology = ({ signal } = {}) =>
 export const getSystemCapabilities = ({ signal } = {}) =>
   request("/api/v1/system/capabilities", { signal });
 
+export const getScenarioCatalog = ({ signal } = {}) =>
+  request("/api/v1/scenarios", { signal });
+
+export const startScenario = (scenarioId) =>
+  request(`/api/v1/scenarios/${encodeURIComponent(scenarioId)}/start`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+
+export const stopScenario = () =>
+  request("/api/v1/scenarios/stop", { method: "POST" });
+
+export const getCurrentQoe = ({ signal } = {}) =>
+  request("/api/v1/qoe/current", { signal });
+
+export const getQoeHistory = (params = {}, { signal } = {}) =>
+  request(`/api/v1/qoe/history${queryString(params)}`, { signal });
+
 export const collectHostMeasurement = (options = {}) =>
   request("/api/v1/monitoring/collect", {
     ...options,

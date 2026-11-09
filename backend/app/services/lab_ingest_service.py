@@ -25,6 +25,10 @@ from backend.app.services.lab_accounting_service import (
     LabAccountingService,
     lab_accounting_service,
 )
+from backend.app.services.latency_probe_service import (
+    LatencyProbeService,
+    latency_probe_service,
+)
 from network.telemetry.metrics_store import MetricsStore
 
 
@@ -78,6 +82,7 @@ class LabIngestService:
         store_factory: Callable[[Path], MetricsStore] = MetricsStore,
         clock: Callable[[], datetime] = utc_now,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        probe_service: LatencyProbeService | None = None,
         platform_name: str | None = None,
         enabled: bool | None = None,
         interval_seconds: float | None = None,
@@ -87,6 +92,7 @@ class LabIngestService:
         self.store_factory = store_factory
         self.clock = clock
         self.sleep = sleep
+        self.probe_service = probe_service or latency_probe_service
         self.platform = platform_name or _platform_name()
         self.interval_seconds = (
             interval_seconds
@@ -248,6 +254,15 @@ class LabIngestService:
             if actual_ids != expected_ids:
                 raise ValueError("lab collector returned an incomplete inventory")
 
+            slots_by_id = {
+                client.client_id: client.client_number
+                for client in self.accounting.inventory
+            }
+            clients = [
+                self._merge_probe_metrics(item, slots_by_id, now)
+                for item in clients
+            ]
+
             for observation in clients:
                 self.accounting.registry.observe(
                     observation,
@@ -291,6 +306,29 @@ class LabIngestService:
                 _LOGGER.exception("lab ingest unavailable observation could not be saved")
                 return _CycleResult("persistence_failed", None)
             return _CycleResult("collection_failed", None)
+
+    def _merge_probe_metrics(
+        self,
+        observation: TelemetryObservation,
+        slots_by_id: dict[str, int],
+        now: datetime,
+    ) -> TelemetryObservation:
+        client_id = observation.metadata.client_id
+        slot = slots_by_id.get(client_id or "")
+        metrics = (
+            self.probe_service.metrics_for_slot(slot, now)
+            if slot is not None
+            else None
+        )
+        if metrics is None:
+            return observation.model_copy(
+                update={
+                    "rtt_ms": None,
+                    "rtt_variation_ms": None,
+                    "packet_loss_percent": None,
+                }
+            )
+        return observation.model_copy(update=metrics)
 
     def _configure_persisted_registry(self, store: MetricsStore) -> None:
         if self._identity_configured:

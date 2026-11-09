@@ -11,6 +11,8 @@ from backend.app.api.monitoring import router as monitoring_router
 from backend.app.api.topology import router as topology_router
 from backend.app.api.v1 import router as observation_router
 from backend.app.services.lab_ingest_service import lab_ingest_service
+from backend.app.services.latency_probe_service import latency_probe_service
+from backend.app.services.scenario_service import scenario_service
 
 
 def _allowed_origins() -> list[str]:
@@ -35,11 +37,14 @@ def _allowed_origins() -> list[str]:
 async def lifespan(_: FastAPI):
     """Run the optional Linux lab ingester for the life of the API."""
 
+    latency_probe_service.start()
     lab_ingest_service.start()
     try:
         yield
     finally:
+        await scenario_service.shutdown()
         await lab_ingest_service.stop()
+        await latency_probe_service.stop()
 
 
 app = FastAPI(
