@@ -9,6 +9,7 @@ from gateway.accounting import (
     PerClientAccountingCollector,
     SysfsCounterReader,
     build_lab_inventory,
+    client_numbers_from_environment,
 )
 from backend.app.services.client_registry import AnonymousClientRegistry
 
@@ -18,7 +19,10 @@ class LabAccountingService:
 
     def __init__(self, sys_class_net: Path = Path("/sys/class/net")):
         self.registry = AnonymousClientRegistry()
-        self.inventory = build_lab_inventory(self.registry, client_numbers=(1, 2, 3))
+        self.inventory = build_lab_inventory(
+            self.registry,
+            client_numbers=client_numbers_from_environment(),
+        )
         self.collector = PerClientAccountingCollector(
             self.inventory,
             self.registry,

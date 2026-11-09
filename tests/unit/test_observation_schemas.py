@@ -73,6 +73,29 @@ def test_forbidden_identity_fields_are_rejected():
         )
 
 
+def test_error_metadata_rejects_addresses_paths_and_infrastructure():
+    for value in (
+        "failed at 192.0.2.10",
+        "failed at 2001:db8::1",
+        "failed for 00:11:22:33:44:55",
+        "https://example.invalid/private",
+        "C:\\Users\\Alice\\secret.txt",
+        "counter interface unavailable: veth-c1-br",
+        "client-0123456789abcdef",
+        "/home/alice/.ssh/id_ed25519",
+    ):
+        with pytest.raises(ValidationError, match="forbidden identity"):
+            ObservationMetadata.model_validate(metadata(collector_error=value))
+
+
+def test_safe_error_codes_are_accepted():
+    result = ObservationMetadata.model_validate(
+        metadata(collector_error="rate_unavailable:no_baseline")
+    )
+
+    assert result.collector_error == "rate_unavailable:no_baseline"
+
+
 def test_unavailable_metrics_remain_none_and_extra_fields_are_forbidden():
     sample = TelemetryObservation(
         metadata=metadata(quality=ValueQuality.UNAVAILABLE),

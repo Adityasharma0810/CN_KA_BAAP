@@ -1,8 +1,10 @@
+import inspect
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
+import gateway.collector as collector_module
 from backend.app.services.client_registry import AnonymousClientRegistry
 from gateway.accounting import (
     ClientCounterSnapshot,
@@ -12,6 +14,7 @@ from gateway.accounting import (
     SysfsCounterReader,
     build_lab_inventory,
     calculate_client_rates,
+    client_numbers_from_environment,
 )
 
 
@@ -51,6 +54,31 @@ def test_inventory_rejects_duplicate_or_malformed_configuration():
         LabClientConfig(2, first.client_id, "client1", "veth-c1-br")
 
 
+def test_inventory_reuses_registry_labels_when_growing_from_three_to_five():
+    registry = AnonymousClientRegistry()
+    three = build_lab_inventory(registry, client_numbers=(1, 2, 3))
+    five = build_lab_inventory(registry, client_numbers=(1, 2, 3, 4, 5))
+
+    assert five[:3] == three
+    assert len(registry.list_clients()) == 5
+    assert [client.client_id for client in five] == [
+        client.client_id for client in registry.list_clients()
+    ]
+
+
+def test_inventory_and_environment_reject_invalid_client_counts():
+    registry = AnonymousClientRegistry()
+    for values in ((), (0,), (-1,), (True,), (1, "2"), (100,)):
+        with pytest.raises(ValueError):
+            build_lab_inventory(registry, client_numbers=values)
+
+    assert client_numbers_from_environment({}) == (1, 2, 3)
+    assert client_numbers_from_environment({"EB_LAB_CLIENTS": "5"}) == (1, 2, 3, 4, 5)
+    for value in ("0", "-1", "abc", "1.5", "100"):
+        with pytest.raises(ValueError):
+            client_numbers_from_environment({"EB_LAB_CLIENTS": value})
+
+
 def test_rate_formula_and_direction():
     result = calculate_client_rates(counter(100, 200), counter(1_100, 2_200), 2.0)
 
@@ -65,6 +93,18 @@ def test_first_sample_reset_and_invalid_elapsed_are_unavailable():
         calculate_client_rates(counter(1, 1), current, 0)
     with pytest.raises(ValueError):
         calculate_client_rates(counter(1, 1), current, "bad")
+    with pytest.raises(ValueError, match="numeric"):
+        calculate_client_rates(counter(1, 1), current, True)
+    with pytest.raises(ValueError, match="numeric"):
+        calculate_client_rates(counter(1, 1), current, None)
+    for value in (float("nan"), float("inf"), float("-inf")):
+        with pytest.raises(ValueError, match="finite"):
+            calculate_client_rates(counter(1, 1), current, value)
+
+
+def test_counter_snapshot_rejects_non_datetime_timestamp():
+    with pytest.raises(ValueError, match="datetime"):
+        ClientCounterSnapshot(1, 1, 1, 1, "2026-11-09T12:00:00Z")
 
 
 def test_sysfs_reader_reads_all_byte_and_packet_counters(tmp_path: Path):
@@ -104,6 +144,11 @@ def test_collector_isolates_client_counters_and_keeps_idle_zero():
     second = collector.collect(now=T0.replace(second=2))
 
     assert all(item.observation.download_mbps is None for item in first)
+    assert all(
+        item.observation.metadata.collector_error
+        == "rate_unavailable:no_baseline"
+        for item in first
+    )
     by_id = {item.client_id: item.observation for item in second}
     assert by_id[inventory[0].client_id].download_bytes == 1_000
     assert by_id[inventory[0].client_id].upload_bytes == 0
@@ -138,8 +183,56 @@ def test_counter_reset_and_missing_interface_do_not_stop_other_clients():
     second = collector.collect(now=T0.replace(second=1))
     by_id = {item.client_id: item for item in second}
     assert by_id[inventory[1].client_id].rate_reason == "interface_unavailable"
+    assert (
+        by_id[inventory[1].client_id].observation.metadata.collector_error
+        == "interface_unavailable"
+    )
+    assert "veth" not in str(
+        by_id[inventory[1].client_id].observation.model_dump(mode="json")
+    ).lower()
     assert by_id[inventory[0].client_id].observation.metadata.quality == "unavailable"
     assert by_id[inventory[2].client_id].observation.metadata.quality == "unavailable"
+
+
+def test_collector_rebases_after_a_stalled_monotonic_clock():
+    registry = AnonymousClientRegistry()
+    inventory = build_lab_inventory(registry, client_numbers=(1,))
+    samples = iter((counter(0, 0), counter(100, 200), counter(200, 400)))
+    clock = iter((5.0, 5.0, 6.0))
+    collector = PerClientAccountingCollector(
+        inventory,
+        registry,
+        reader=lambda interface, at: next(samples),
+        monotonic=lambda: next(clock),
+    )
+
+    assert collector.collect(now=T0)[0].rate_reason == "no_baseline"
+    stalled = collector.collect(now=T0.replace(second=1))[0]
+    assert stalled.rate_reason == "invalid_elapsed"
+    recovered = collector.collect(now=T0.replace(second=2))[0]
+    assert recovered.rate_reason is None
+    assert recovered.observation.download_mbps == 0.0016
+    assert recovered.observation.upload_mbps == 0.0008
+
+
+def test_legacy_read_bytes_delegates_to_the_shared_sysfs_reader(monkeypatch):
+    calls = []
+
+    def fake_reader(interface, observed_at=None):
+        calls.append(interface)
+        return counter(11, 22, 3, 4)
+
+    assert isinstance(collector_module._counter_reader, SysfsCounterReader)
+    monkeypatch.setattr(collector_module, "_counter_reader", fake_reader)
+
+    assert collector_module.read_bytes(1) == (22, 11)
+    assert calls == ["veth-c1-br"]
+    with pytest.raises(ValueError, match="Unknown lab client"):
+        collector_module.read_bytes(99)
+
+    source = inspect.getsource(collector_module.read_bytes)
+    assert "/sys/class/net" not in source
+    assert "read_text" not in source
 
 
 def test_results_do_not_expose_lab_infrastructure_or_private_identity_fields():

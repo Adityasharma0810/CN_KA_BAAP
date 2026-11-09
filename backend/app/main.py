@@ -7,6 +7,7 @@ from backend.app.api.clients import router as clients_router
 from backend.app.api.health import router as health_router
 from backend.app.api.monitoring import router as monitoring_router
 from backend.app.api.topology import router as topology_router
+from backend.app.api.v1 import router as observation_router
 
 
 app = FastAPI(
@@ -33,6 +34,7 @@ app.include_router(health_router)
 app.include_router(clients_router)
 app.include_router(monitoring_router)
 app.include_router(topology_router)
+app.include_router(observation_router)
 
 
 @app.get("/")

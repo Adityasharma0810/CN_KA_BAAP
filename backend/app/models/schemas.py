@@ -5,11 +5,40 @@ They provide one vocabulary for Windows aggregate observations and Linux lab
 observations without allowing network identity fields to cross the boundary.
 """
 
+import re
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
+
+
+_IDENTITY_ERROR_PATTERNS = (
+    re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),
+    re.compile(r"\b(?:[0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}\b"),
+    re.compile(r"\b[0-9a-fA-F]{0,4}(?::[0-9a-fA-F]{0,4}){2,}\b"),
+    re.compile(r"https?://", re.IGNORECASE),
+    re.compile(r"[A-Za-z]:\\"),
+)
+_FORBIDDEN_ERROR_TERMS = (
+    "mac address",
+    "ip address",
+    "device name",
+    "client name",
+    "hostname",
+    "password",
+    "secret",
+    "token",
+    "credential",
+    "veth",
+    "wlan",
+    "enp",
+    "br-",
+    "client-",
+    "/etc/",
+    "/home/",
+    "/sys/",
+)
 
 
 class ObservationSource(str, Enum):
@@ -19,6 +48,7 @@ class ObservationSource(str, Enum):
     WINDOWS_HOTSPOT = "windows_hotspot"
     LINUX_GATEWAY = "linux_gateway"
     LINUX_NAMESPACE_LAB = "linux_namespace_lab"
+    UNKNOWN = "unknown"
 
 
 class ObservationScope(str, Enum):
@@ -35,6 +65,7 @@ class ValueQuality(str, Enum):
     MEASURED = "measured"
     DERIVED = "derived"
     UNAVAILABLE = "unavailable"
+    UNKNOWN = "unknown"
 
 
 class ObservationEnvironment(str, Enum):
@@ -58,7 +89,11 @@ ClientId = Annotated[
 class ObservationMetadata(BaseModel):
     """Common provenance and freshness metadata for every observation."""
 
-    model_config = ConfigDict(extra="forbid", use_enum_values=True)
+    model_config = ConfigDict(
+        extra="forbid",
+        use_enum_values=True,
+        hide_input_in_errors=True,
+    )
 
     observed_at: datetime
     source: ObservationSource
@@ -96,8 +131,9 @@ class ObservationMetadata(BaseModel):
         if value is None:
             return None
         lowered = value.lower()
-        forbidden = ("mac address", "ip address", "device name", "client name")
-        if any(term in lowered for term in forbidden):
+        if any(term in lowered for term in _FORBIDDEN_ERROR_TERMS):
+            raise ValueError("collector_error contains forbidden identity data")
+        if any(pattern.search(value) for pattern in _IDENTITY_ERROR_PATTERNS):
             raise ValueError("collector_error contains forbidden identity data")
         return value
 
@@ -111,7 +147,11 @@ class TelemetryObservation(BaseModel):
     successful RTT samples, not a standardized media-jitter measurement.
     """
 
-    model_config = ConfigDict(extra="forbid", use_enum_values=True)
+    model_config = ConfigDict(
+        extra="forbid",
+        use_enum_values=True,
+        hide_input_in_errors=True,
+    )
 
     metadata: ObservationMetadata
     download_bytes: StrictInt | None = Field(default=None, ge=0)
