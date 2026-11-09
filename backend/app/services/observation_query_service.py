@@ -325,10 +325,11 @@ def build_current_observations(
     scope: str | None = None,
     environment: str | None = None,
     client_id: str | None = None,
+    now: datetime | None = None,
 ) -> CurrentObservationsResponse:
     """Return the newest observation per source or per anonymous client."""
 
-    now = utc_now()
+    now = now or utc_now()
     source_value = _value(source)
     scope_value = _value(scope)
     environment_value = _value(environment)
