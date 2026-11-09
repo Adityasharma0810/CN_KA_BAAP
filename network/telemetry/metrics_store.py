@@ -17,7 +17,13 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
 
-from backend.app.models.schemas import ClientId, ObservationEnvironment
+from backend.app.models.schemas import (
+    ClientId,
+    ObservationEnvironment,
+    ObservationMetadata,
+    ObservationScope,
+    TelemetryObservation,
+)
 
 
 DEFAULT_DB_PATH = "data/experience_budget.sqlite3"
@@ -40,7 +46,31 @@ class CorruptDatabaseError(StorageError):
 
 _DISPLAY_LABEL_PATTERN = re.compile(r"^Client [0-9]{2,}$")
 _MAX_SIMULATED_LAB_SLOT = 99
+_MAX_OBSERVATION_BATCH = 500
 _CLIENT_ID_ADAPTER = TypeAdapter(ClientId)
+_SAFE_ERROR_PATTERN = re.compile(r"^[a-z][a-z0-9_.:-]{0,99}$")
+_FORBIDDEN_ERROR_TERMS = (
+    "ip",
+    "mac",
+    "device",
+    "hostname",
+    "address",
+    "password",
+    "secret",
+    "token",
+    "credential",
+    "client-",
+    "veth",
+    "wlan",
+    "eth",
+    "enp",
+    "br-",
+    "sys",
+    "etc",
+    "users",
+    "/",
+    "\\",
+)
 
 
 class StoredAnonymousClient(BaseModel):
@@ -63,6 +93,17 @@ class StoredAnonymousClient(BaseModel):
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("client timestamps must include a timezone")
         return value.astimezone(timezone.utc)
+
+
+class StoredObservation(BaseModel):
+    """A persisted shared observation plus its storage identifiers."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: int
+    legacy_sample_id: int | None = None
+    observation: TelemetryObservation
+
 
 ALLOWED_FIELDS = {
     "recorded_at",
@@ -269,6 +310,62 @@ _LEGACY_INSERT = """
         WHERE legacy_sample_id = ?
     )
 """
+
+
+_OBSERVATION_INSERT = """
+    INSERT INTO telemetry_observations (
+        observed_at,
+        source,
+        scope,
+        environment,
+        quality,
+        stale,
+        collector_error,
+        client_id,
+        download_bytes,
+        upload_bytes,
+        download_packets,
+        upload_packets,
+        download_mbps,
+        upload_mbps,
+        rtt_ms,
+        packet_loss_percent,
+        rtt_variation_ms,
+        queue_depth_bytes,
+        queue_delay_ms
+    )
+    VALUES (
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?, ?, ?
+    )
+"""
+
+
+def _enum_value(value):
+    return value.value if hasattr(value, "value") else value
+
+
+def _safe_collector_error(value):
+    """Allow only short, controlled error codes; reject identity-like text."""
+
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("collector_error must be a string or None")
+
+    value = value.strip()
+    if not value or _SAFE_ERROR_PATTERN.fullmatch(value) is None:
+        raise ValueError("collector_error must be a short safe code")
+
+    lowered = value.lower()
+    if any(term in lowered for term in _FORBIDDEN_ERROR_TERMS):
+        raise ValueError("collector_error contains forbidden identity data")
+
+    try:
+        ipaddress.ip_address(value)
+    except ValueError:
+        return value
+    raise ValueError("collector_error must not contain an address")
 
 
 def _parse_legacy_timestamp(value):
@@ -760,6 +857,228 @@ class MetricsStore:
         if candidate is None or current_time >= candidate:
             return current
         return candidate.isoformat()
+
+    @staticmethod
+    def _observation_from_row(row):
+        observed_at = datetime.fromisoformat(row["observed_at"])
+        if observed_at.tzinfo is None or observed_at.utcoffset() is None:
+            observed_at = observed_at.replace(tzinfo=timezone.utc)
+
+        metadata = ObservationMetadata(
+            observed_at=observed_at,
+            source=row["source"],
+            scope=row["scope"],
+            quality=row["quality"],
+            environment=row["environment"],
+            stale=bool(row["stale"]),
+            collector_error=row["collector_error"],
+            client_id=row["client_id"],
+        )
+        observation = TelemetryObservation(
+            metadata=metadata,
+            download_bytes=row["download_bytes"],
+            upload_bytes=row["upload_bytes"],
+            download_packets=row["download_packets"],
+            upload_packets=row["upload_packets"],
+            download_mbps=row["download_mbps"],
+            upload_mbps=row["upload_mbps"],
+            rtt_ms=row["rtt_ms"],
+            packet_loss_percent=row["packet_loss_percent"],
+            rtt_variation_ms=row["rtt_variation_ms"],
+            queue_depth_bytes=row["queue_depth_bytes"],
+            queue_delay_ms=row["queue_delay_ms"],
+        )
+        return StoredObservation(
+            id=row["id"],
+            legacy_sample_id=row["legacy_sample_id"],
+            observation=observation,
+        )
+
+    def _observation_values(self, observation):
+        if isinstance(observation, dict):
+            observation = TelemetryObservation.model_validate(observation)
+        elif not isinstance(observation, TelemetryObservation):
+            raise TypeError("observation must be a TelemetryObservation or mapping")
+
+        for field in (
+            "download_mbps",
+            "upload_mbps",
+            "rtt_ms",
+            "packet_loss_percent",
+            "rtt_variation_ms",
+            "queue_delay_ms",
+        ):
+            value = getattr(observation, field)
+            if value is not None and (
+                not isinstance(value, (int, float))
+                or isinstance(value, bool)
+                or not math.isfinite(value)
+            ):
+                raise ValueError(f"invalid numeric field: {field}")
+
+        metadata = observation.metadata
+        source = _enum_value(metadata.source)
+        scope = _enum_value(metadata.scope)
+        environment = _enum_value(metadata.environment)
+        quality = _enum_value(metadata.quality)
+
+        if scope == ObservationScope.CLIENT.value and metadata.client_id is None:
+            raise ValueError("client observations require an anonymous client_id")
+        if scope != ObservationScope.CLIENT.value and metadata.client_id is not None:
+            raise ValueError("aggregate observations cannot contain client_id")
+
+        return (
+            metadata.observed_at.astimezone(timezone.utc).isoformat(),
+            source,
+            scope,
+            environment,
+            quality,
+            1 if metadata.stale else 0,
+            _safe_collector_error(metadata.collector_error),
+            metadata.client_id,
+            observation.download_bytes,
+            observation.upload_bytes,
+            observation.download_packets,
+            observation.upload_packets,
+            observation.download_mbps,
+            observation.upload_mbps,
+            observation.rtt_ms,
+            observation.packet_loss_percent,
+            observation.rtt_variation_ms,
+            observation.queue_depth_bytes,
+            observation.queue_delay_ms,
+        )
+
+    @staticmethod
+    def _require_clients(connection, client_ids):
+        if not client_ids:
+            return
+
+        placeholders = ", ".join("?" for _ in client_ids)
+        rows = connection.execute(
+            f"""
+            SELECT client_id FROM anonymous_clients
+            WHERE client_id IN ({placeholders})
+            """,
+            tuple(client_ids),
+        ).fetchall()
+        found = {row["client_id"] for row in rows}
+        if found != set(client_ids):
+            raise ValueError(
+                "client observation requires a registered anonymous client"
+            )
+
+    def _touch_clients(self, connection, values):
+        observed = {}
+
+        for row in values:
+            client_id = row[7]
+            if client_id is None:
+                continue
+            observed_at = datetime.fromisoformat(row[0])
+            if client_id not in observed:
+                observed[client_id] = [observed_at, observed_at]
+            else:
+                observed[client_id][0] = min(
+                    observed[client_id][0], observed_at
+                )
+                observed[client_id][1] = max(
+                    observed[client_id][1], observed_at
+                )
+
+        for client_id, (first_seen, last_seen) in observed.items():
+            existing = connection.execute(
+                """
+                SELECT first_seen_at, last_seen_at
+                FROM anonymous_clients
+                WHERE client_id = ?
+                """,
+                (client_id,),
+            ).fetchone()
+            connection.execute(
+                """
+                UPDATE anonymous_clients
+                SET first_seen_at = ?, last_seen_at = ?
+                WHERE client_id = ?
+                """,
+                (
+                    self._earlier(existing["first_seen_at"], first_seen),
+                    self._later(existing["last_seen_at"], last_seen),
+                    client_id,
+                ),
+            )
+
+    def save_observations(self, observations):
+        """Validate and insert a bounded batch atomically."""
+
+        if isinstance(observations, (str, bytes, dict)):
+            raise TypeError("observations must be an iterable of observations")
+
+        try:
+            items = list(observations)
+        except TypeError as error:
+            raise TypeError("observations must be an iterable") from error
+
+        if len(items) > _MAX_OBSERVATION_BATCH:
+            raise ValueError("observation batch is too large")
+        if not items:
+            return []
+
+        values = [self._observation_values(item) for item in items]
+        client_ids = {row[7] for row in values if row[7] is not None}
+
+        connection = self._connect()
+
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            self._require_clients(connection, client_ids)
+
+            ids = []
+            for row in values:
+                cursor = connection.execute(_OBSERVATION_INSERT, row)
+                ids.append(cursor.lastrowid)
+
+            self._touch_clients(connection, values)
+            connection.commit()
+            return ids
+
+        except Exception:
+            connection.rollback()
+            raise
+
+        finally:
+            connection.close()
+
+    def save_observation(self, observation):
+        """Validate and insert one shared observation."""
+
+        return self.save_observations([observation])[0]
+
+    def get_observation(self, observation_id):
+        """Return one stored observation, or ``None`` when absent."""
+
+        if (
+            isinstance(observation_id, bool)
+            or not isinstance(observation_id, int)
+            or observation_id < 1
+        ):
+            raise ValueError("observation_id must be a positive integer")
+
+        connection = self._connect()
+
+        try:
+            row = connection.execute(
+                """
+                SELECT * FROM telemetry_observations
+                WHERE id = ?
+                """,
+                (observation_id,),
+            ).fetchone()
+
+            return self._observation_from_row(row) if row is not None else None
+
+        finally:
+            connection.close()
 
     def _validate(self, sample):
         if not isinstance(sample, dict):

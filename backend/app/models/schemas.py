@@ -19,6 +19,7 @@ class ObservationSource(str, Enum):
     WINDOWS_HOTSPOT = "windows_hotspot"
     LINUX_GATEWAY = "linux_gateway"
     LINUX_NAMESPACE_LAB = "linux_namespace_lab"
+    UNKNOWN = "unknown"
 
 
 class ObservationScope(str, Enum):
@@ -35,6 +36,7 @@ class ValueQuality(str, Enum):
     MEASURED = "measured"
     DERIVED = "derived"
     UNAVAILABLE = "unavailable"
+    UNKNOWN = "unknown"
 
 
 class ObservationEnvironment(str, Enum):
