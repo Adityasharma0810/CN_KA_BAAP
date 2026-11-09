@@ -1,5 +1,7 @@
 """Product-facing anonymous client observation routes."""
 
+import logging
+
 from fastapi import APIRouter, HTTPException, Path
 from pydantic import TypeAdapter
 
@@ -13,6 +15,7 @@ from backend.app.services.lab_accounting_service import lab_accounting_service
 
 router = APIRouter(prefix="/api/v1/clients", tags=["Clients"])
 _CLIENT_ID = TypeAdapter(ClientId)
+_LOGGER = logging.getLogger(__name__)
 
 
 def _observations_by_client(result: dict) -> dict[str, object]:
@@ -42,6 +45,8 @@ def _collect_safe():
     try:
         return lab_accounting_service.collect()
     except Exception:
+        # Keep the HTTP contract safe while retaining a diagnostic in server logs.
+        _LOGGER.warning("anonymous client telemetry unavailable", exc_info=True)
         return {
             "available": False,
             "clients": [],
