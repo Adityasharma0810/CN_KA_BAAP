@@ -9,10 +9,15 @@ Does not store connected-device identities or private traffic data.
 
 import ipaddress
 import math
+import re
 import sqlite3
 
 from datetime import datetime, timezone
 from pathlib import Path
+
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
+
+from backend.app.models.schemas import ClientId, ObservationEnvironment
 
 
 DEFAULT_DB_PATH = "data/experience_budget.sqlite3"
@@ -31,6 +36,33 @@ class MigrationError(StorageError):
 
 class CorruptDatabaseError(StorageError):
     """Raised when SQLite reports that the database is not readable."""
+
+
+_DISPLAY_LABEL_PATTERN = re.compile(r"^Client [0-9]{2,}$")
+_MAX_SIMULATED_LAB_SLOT = 99
+_CLIENT_ID_ADAPTER = TypeAdapter(ClientId)
+
+
+class StoredAnonymousClient(BaseModel):
+    """Persisted anonymous client record with no identity or address fields."""
+
+    model_config = ConfigDict(extra="forbid", use_enum_values=True)
+
+    client_id: ClientId
+    display_label: str = Field(pattern=r"^Client [0-9]{2,}$")
+    environment: ObservationEnvironment
+    simulated_lab_slot: int | None = Field(default=None, ge=1)
+    first_seen_at: datetime | None = None
+    last_seen_at: datetime | None = None
+
+    @field_validator("first_seen_at", "last_seen_at")
+    @classmethod
+    def require_utc_if_present(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("client timestamps must include a timezone")
+        return value.astimezone(timezone.utc)
 
 ALLOWED_FIELDS = {
     "recorded_at",
@@ -463,6 +495,271 @@ class MetricsStore:
                     row["id"],
                 ),
             )
+
+    @staticmethod
+    def _coerce_client_id(client_id):
+        try:
+            return _CLIENT_ID_ADAPTER.validate_python(client_id)
+        except (TypeError, ValueError) as error:
+            raise ValueError("invalid anonymous client ID") from error
+
+    @staticmethod
+    def _coerce_utc(value, field_name):
+        if value is None:
+            return None
+        if not isinstance(value, datetime):
+            raise ValueError(f"{field_name} must be a datetime")
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError(f"{field_name} must include a timezone")
+        return value.astimezone(timezone.utc)
+
+    @staticmethod
+    def _client_from_row(row):
+        return StoredAnonymousClient(
+            client_id=row["client_id"],
+            display_label=row["display_label"],
+            environment=row["environment"],
+            simulated_lab_slot=row["simulated_lab_slot"],
+            first_seen_at=(
+                datetime.fromisoformat(row["first_seen_at"])
+                if row["first_seen_at"]
+                else None
+            ),
+            last_seen_at=(
+                datetime.fromisoformat(row["last_seen_at"])
+                if row["last_seen_at"]
+                else None
+            ),
+        )
+
+    def register_client(
+        self,
+        client_id,
+        display_label,
+        *,
+        environment=ObservationEnvironment.PHYSICAL_HOST,
+        simulated_lab_slot=None,
+        first_seen_at=None,
+        last_seen_at=None,
+    ):
+        """Register or idempotently update one anonymous client record."""
+
+        client_id = self._coerce_client_id(client_id)
+
+        if (
+            not isinstance(display_label, str)
+            or _DISPLAY_LABEL_PATTERN.fullmatch(display_label) is None
+        ):
+            raise ValueError("display_label must look like 'Client 01'")
+
+        try:
+            environment = ObservationEnvironment(environment)
+        except (TypeError, ValueError) as error:
+            raise ValueError("invalid observation environment") from error
+
+        if simulated_lab_slot is not None:
+            if (
+                isinstance(simulated_lab_slot, bool)
+                or not isinstance(simulated_lab_slot, int)
+                or simulated_lab_slot < 1
+                or simulated_lab_slot > _MAX_SIMULATED_LAB_SLOT
+            ):
+                raise ValueError("simulated_lab_slot must be a positive integer")
+            if environment != ObservationEnvironment.SIMULATED_LAB:
+                raise ValueError(
+                    "simulated_lab_slot requires the simulated_lab environment"
+                )
+
+        first_seen_at = self._coerce_utc(first_seen_at, "first_seen_at")
+        last_seen_at = self._coerce_utc(last_seen_at, "last_seen_at")
+
+        if (
+            first_seen_at is not None
+            and last_seen_at is not None
+            and first_seen_at > last_seen_at
+        ):
+            raise ValueError("first_seen_at must not follow last_seen_at")
+
+        if first_seen_at is None and last_seen_at is not None:
+            first_seen_at = last_seen_at
+
+        connection = self._connect()
+
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            existing = connection.execute(
+                "SELECT * FROM anonymous_clients WHERE client_id = ?",
+                (client_id,),
+            ).fetchone()
+
+            if existing is not None:
+                if (
+                    existing["display_label"] != display_label
+                    or existing["environment"] != environment.value
+                    or existing["simulated_lab_slot"] != simulated_lab_slot
+                ):
+                    raise ValueError("conflicting anonymous client record")
+
+                merged_first = self._earlier(
+                    existing["first_seen_at"], first_seen_at
+                )
+                merged_last = self._later(existing["last_seen_at"], last_seen_at)
+                connection.execute(
+                    """
+                    UPDATE anonymous_clients
+                    SET first_seen_at = ?, last_seen_at = ?
+                    WHERE client_id = ?
+                    """,
+                    (merged_first, merged_last, client_id),
+                )
+                connection.commit()
+                return self._client_from_row(
+                    connection.execute(
+                        "SELECT * FROM anonymous_clients WHERE client_id = ?",
+                        (client_id,),
+                    ).fetchone()
+                )
+
+            label_owner = connection.execute(
+                "SELECT client_id FROM anonymous_clients WHERE display_label = ?",
+                (display_label,),
+            ).fetchone()
+            if label_owner is not None:
+                raise ValueError("display label is already assigned")
+
+            if simulated_lab_slot is not None:
+                slot_owner = connection.execute(
+                    """
+                    SELECT client_id FROM anonymous_clients
+                    WHERE environment = ? AND simulated_lab_slot = ?
+                    """,
+                    (environment.value, simulated_lab_slot),
+                ).fetchone()
+                if slot_owner is not None:
+                    raise ValueError("simulated lab slot is already assigned")
+
+            connection.execute(
+                """
+                INSERT INTO anonymous_clients (
+                    client_id,
+                    display_label,
+                    environment,
+                    simulated_lab_slot,
+                    first_seen_at,
+                    last_seen_at,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    client_id,
+                    display_label,
+                    environment.value,
+                    simulated_lab_slot,
+                    first_seen_at.isoformat() if first_seen_at else None,
+                    last_seen_at.isoformat() if last_seen_at else None,
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            connection.commit()
+
+            return self._client_from_row(
+                connection.execute(
+                    "SELECT * FROM anonymous_clients WHERE client_id = ?",
+                    (client_id,),
+                ).fetchone()
+            )
+
+        except Exception:
+            connection.rollback()
+            raise
+
+        finally:
+            connection.close()
+
+    def get_client(self, client_id):
+        """Return one persisted anonymous client by opaque ID."""
+
+        client_id = self._coerce_client_id(client_id)
+        connection = self._connect()
+
+        try:
+            row = connection.execute(
+                "SELECT * FROM anonymous_clients WHERE client_id = ?",
+                (client_id,),
+            ).fetchone()
+
+            if row is None:
+                raise KeyError("unknown anonymous client")
+
+            return self._client_from_row(row)
+
+        finally:
+            connection.close()
+
+    def list_clients(self):
+        """Return persisted clients in numeric display-label order."""
+
+        connection = self._connect()
+
+        try:
+            rows = connection.execute(
+                "SELECT * FROM anonymous_clients"
+            ).fetchall()
+            clients = [self._client_from_row(row) for row in rows]
+            return sorted(
+                clients,
+                key=lambda client: int(client.display_label.split()[1]),
+            )
+
+        finally:
+            connection.close()
+
+    def get_simulated_client_by_slot(self, simulated_lab_slot):
+        """Return the configured simulated-lab client for one slot, if any."""
+
+        if (
+            isinstance(simulated_lab_slot, bool)
+            or not isinstance(simulated_lab_slot, int)
+            or simulated_lab_slot < 1
+            or simulated_lab_slot > _MAX_SIMULATED_LAB_SLOT
+        ):
+            raise ValueError("simulated_lab_slot must be a positive integer")
+
+        connection = self._connect()
+
+        try:
+            row = connection.execute(
+                """
+                SELECT * FROM anonymous_clients
+                WHERE environment = 'simulated_lab'
+                  AND simulated_lab_slot = ?
+                """,
+                (simulated_lab_slot,),
+            ).fetchone()
+
+            return self._client_from_row(row) if row is not None else None
+
+        finally:
+            connection.close()
+
+    @staticmethod
+    def _earlier(current, candidate):
+        if current is None:
+            return candidate.isoformat() if candidate else None
+        current_time = datetime.fromisoformat(current)
+        if candidate is None or current_time <= candidate:
+            return current
+        return candidate.isoformat()
+
+    @staticmethod
+    def _later(current, candidate):
+        if current is None:
+            return candidate.isoformat() if candidate else None
+        current_time = datetime.fromisoformat(current)
+        if candidate is None or current_time >= candidate:
+            return current
+        return candidate.isoformat()
 
     def _validate(self, sample):
         if not isinstance(sample, dict):
