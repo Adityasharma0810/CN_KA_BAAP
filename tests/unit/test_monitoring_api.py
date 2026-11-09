@@ -57,6 +57,22 @@ def test_reject_unapproved_probe_target():
     assert response.status_code == 422
 
 
+def test_lab_clients_endpoint(monkeypatch):
+    expected = {
+        "available": True,
+        "source": "linux_namespace_lab",
+        "environment": "simulated_lab",
+        "scope": "client",
+        "clients": [],
+    }
+    monkeypatch.setattr(monitoring_api.lab_accounting_service, "collect", lambda: expected)
+
+    response = client.get("/api/v1/monitoring/lab/clients")
+
+    assert response.status_code == 200
+    assert response.json() == expected
+
+
 def test_history_endpoint(monkeypatch):
     expected = [{"id": 1, "download_mbps": 12.5}]
 

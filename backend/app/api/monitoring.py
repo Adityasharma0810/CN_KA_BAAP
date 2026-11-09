@@ -12,6 +12,7 @@ from backend.app.services.monitoring_service import (
     collect_hotspot_and_store,
     get_hotspot_history,
 )
+from backend.app.services.lab_accounting_service import lab_accounting_service
 
 router = APIRouter(
     prefix="/api/v1/monitoring",
@@ -108,6 +109,16 @@ def hotspot_history(
             status_code=503,
             detail=str(error),
         ) from error
+
+
+@router.get("/lab/clients")
+def lab_clients():
+    """Return genuine per-client measurements from the Linux namespace lab."""
+
+    try:
+        return lab_accounting_service.collect()
+    except (ValueError, RuntimeError, OSError) as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
 
 
 @router.get("/history")

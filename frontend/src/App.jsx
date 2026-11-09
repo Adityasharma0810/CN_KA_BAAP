@@ -16,6 +16,7 @@ const API_BASE = "http://127.0.0.1:8000";
 
 function App() {
   const [hotspotData, setHotspotData] = useState([]);
+  const [labClients, setLabClients] = useState([]);
   const [autoMonitoring, setAutoMonitoring] = useState(false);
   const inFlightRef = useRef(false);
   const [data, setData] = useState([]);
@@ -25,17 +26,19 @@ function App() {
 
   const fetchHistory = useCallback(async () => {
     try {
-      const [upstreamResponse, hotspotResponse] = await Promise.all([
+      const [upstreamResponse, hotspotResponse, labResponse] = await Promise.all([
         fetch(`${API_BASE}/api/v1/monitoring/history?limit=50`),
-        fetch(`${API_BASE}/api/v1/monitoring/hotspot/history?limit=50`)
+        fetch(`${API_BASE}/api/v1/monitoring/hotspot/history?limit=50`),
+        fetch(`${API_BASE}/api/v1/monitoring/lab/clients`),
       ]);
 
-      if (!upstreamResponse.ok || !hotspotResponse.ok) {
+      if (!upstreamResponse.ok || !hotspotResponse.ok || !labResponse.ok) {
         throw new Error("Could not load network history.");
       }
 
       const upstreamResult = await upstreamResponse.json();
       const hotspotResult = await hotspotResponse.json();
+      const labResult = await labResponse.json();
 
       const upstreamSamples = upstreamResult.samples
         .slice()
@@ -65,6 +68,7 @@ function App() {
 
       setData(upstreamSamples);
       setHotspotData(downstreamSamples);
+      setLabClients(labResult.available ? labResult.clients : []);
       setError(null);
 
     } catch (err) {
@@ -143,17 +147,19 @@ function App() {
     let ignore = false;
     const load = async () => {
       try {
-        const [upstreamResponse, hotspotResponse] = await Promise.all([
+        const [upstreamResponse, hotspotResponse, labResponse] = await Promise.all([
           fetch(`${API_BASE}/api/v1/monitoring/history?limit=50`),
-          fetch(`${API_BASE}/api/v1/monitoring/hotspot/history?limit=50`)
+          fetch(`${API_BASE}/api/v1/monitoring/hotspot/history?limit=50`),
+          fetch(`${API_BASE}/api/v1/monitoring/lab/clients`),
         ]);
 
-        if (!upstreamResponse.ok || !hotspotResponse.ok) {
+        if (!upstreamResponse.ok || !hotspotResponse.ok || !labResponse.ok) {
           throw new Error("Could not load network history.");
         }
 
         const upstreamResult = await upstreamResponse.json();
         const hotspotResult = await hotspotResponse.json();
+        const labResult = await labResponse.json();
 
         if (ignore) return;
 
@@ -185,6 +191,7 @@ function App() {
 
         setData(upstreamSamples);
         setHotspotData(downstreamSamples);
+        setLabClients(labResult.available ? labResult.clients : []);
         setError(null);
       } catch (err) {
         if (!ignore) setError(err.message);
@@ -272,6 +279,7 @@ function App() {
       <NetworkTopology
         upstream={data[data.length - 1]}
         downstream={hotspotData[hotspotData.length - 1]}
+        labClients={labClients}
       />
 
       {data.length === 0 ? (
