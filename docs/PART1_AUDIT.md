@@ -38,13 +38,13 @@ The two application paths do not share schemas, persistence, health reporting, o
 | Windows connectivity and ICMP quality | PARTIAL | `connectivity_monitor.py`, `network_quality.py` | Quality output is not represented by a common telemetry model; ICMP loss must remain clearly distinct from application loss | Schema and serialization tests; documented formula |
 | Windows Mobile Hotspot | PARTIAL | `hotspot_bandwidth_monitor.py`, `monitoring_service.py` | Correctly aggregate-only, but hardcoded adapter default and separate storage/query convention | Tests proving aggregate scope and no client identity |
 | Existing Windows FastAPI app | PARTIAL | `backend/app/main.py`, `backend/app/api/monitoring.py` | Functional endpoints, but no collector/database/lab health model and no Linux integration | API contract tests and health failure tests |
-| Linux per-client counters | PARTIAL | `gateway/collector.py` | Reads bridge-side counters for three hardcoded clients; no reset/disappearance handling; no reusable collector abstraction | Unit tests with fake sysfs; Ubuntu integration tests when available |
+| Linux per-client counters | COMPLETE | `gateway/accounting.py`, `gateway/collector.py` | Reusable sysfs reader, configurable inventory, rate/reset/disappearance handling, and per-client isolation; legacy `read_bytes()` delegates to the shared reader | Unit tests plus real three- and five-client Ubuntu runs in `docs/MODULE3_EVIDENCE.md` |
 | Linux anonymous IDs | PARTIAL | `gateway/collector.py` | Random in-memory IDs exist, but no lifecycle registry, stable session semantics, validation, or privacy tests | Registry lifecycle and forbidden-field tests |
 | Linux gateway API | PARTIAL / INTEGRATION BROKEN | `gateway/api.py` | Separate FastAPI app, same default port, policy/control routes mixed into observation path, dashboard does not consume it | Unified API integration tests; Part 1 must not expose arbitrary commands |
 | Shared telemetry schema | MISSING | `backend/app/models/schemas.py` is empty | Windows and Linux dictionaries have unrelated field names and provenance semantics | Pydantic model tests and cross-source fixtures |
 | SQLite aggregate history | PARTIAL | `network/telemetry/metrics_store.py` | Aggregate-only schema; no observation source/type/client separation or migration versioning | Migration, bounded query, and separation tests |
 | Unified observation API | MISSING | `backend/app/main.py`, `backend/app/api/*` | No gateway status, topology, client list, per-client current/history, or lab routes | API unit/integration/privacy tests |
-| Lab setup/reset | PARTIAL | `scripts/setup_gateway.sh`, `cleanup_gateway.sh` | Fixed to three clients; cleanup and NAT ownership need stronger validation and state handling | Repeated reset test in Ubuntu VM; blocked status if VM unavailable |
+| Lab setup/reset | COMPLETE | `scripts/setup_gateway.sh`, `scripts/cleanup_gateway.sh`, `scripts/lab_common.sh` | Default three clients, configurable to five or more, validated names/counts, ownership markers/state, idempotent setup/cleanup, and only project-owned nft/interface changes | Real three- and five-client reset/cleanup runs in `docs/MODULE3_EVIDENCE.md` |
 | Scenario A | PARTIAL | `experiments/run_call_vs_download.py`, shell scripts | Existing experiment is not yet the required single reproducible baseline workflow with standard CSV, plots, settings, and versions | Ubuntu scenario run and artifact validation |
 | React dashboard | PARTIAL | `frontend/src/App.jsx`, `NetworkTopology.jsx` | Aggregate-only UI; no live anonymous client list or per-client measurements; frontend lint issues must be checked | `npm run lint`, `npm run build`, API fixture/component checks |
 | Documentation | PARTIAL | `README.md`, `docs/*`, `frontend/README.md` | Prior audit exists; current Part 1 architecture, API examples, privacy limits, and Windows/Ubuntu workflow need consolidation | Documentation review and command verification |
@@ -65,7 +65,7 @@ Tracked generated data exists under `data/capacity_forecasting/` and experiment 
 - [x] Add rate calculation and telemetry-quality/staleness semantics.
 - [ ] Migrate SQLite storage with aggregate/per-client separation and bounded queries.
 - [ ] Integrate observation routes and health checks into one FastAPI application.
-- [ ] Harden namespace/veth lab setup, reset, ownership, and dependency checks.
+- [x] Harden namespace/veth lab setup, reset, ownership, and dependency checks.
 - [ ] Build reproducible Scenario A CSV/plot/tool-version workflow.
 - [ ] Upgrade the existing dashboard using API-provided topology and measurements.
 - [ ] Consolidate documentation and run final cross-layer regression tests.
