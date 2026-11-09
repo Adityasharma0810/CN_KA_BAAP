@@ -1,0 +1,64 @@
+{
+  "runtime_version": "1.0",
+  "created_utc": "2026-11-08 08:55:54",
+  "seed": 42,
+  "quick_mode": false,
+  "data": "SIMULATED / EMULATED (see model_card.md)",
+  "flow_classifier": {
+    "enabled": false,
+    "verdict": "PASS with warnings",
+    "failed_hard": [],
+    "warnings": [
+      "macro-F1 on UNSEEN apps"
+    ],
+    "model": "RandomForest (300 trees)",
+    "abstain_tau": 0.4
+  },
+  "capacity_forecaster": {
+    "enabled": false,
+    "verdict": "PASS",
+    "failed_hard": [],
+    "warnings": [],
+    "model": "LightGBM 400 trees, small HW grid",
+    "gate_width": 0.20999999999999996,
+    "horizon_min": 5,
+    "risk_cut_seasonal": 0.9024793388429753,
+    "risk_cut_ci": [
+      0.8480304997262845,
+      0.94829894331001
+    ]
+  },
+  "qoe_predictor": {
+    "enabled": true,
+    "verdict": "PASS",
+    "failed_hard": [],
+    "warnings": [],
+    "model": "LightGBM 600 trees",
+    "horizon_main_s": 10,
+    "f1_gain": 0.19684888702118297,
+    "f1_gain_ci": [
+      0.09111557546943877,
+      0.30816127260631127
+    ],
+    "strongest_baseline": "QoE-level rule (tuned: QoE < 0.85)"
+  },
+  "acceptance_gates": {
+    "clf_macro_f1": 0.8,
+    "clf_enc_gain_over_ports": 0.1,
+    "clf_unseen_macro_f1": 0.6,
+    "fc_season_risk_reduction": 0.3,
+    "fc_max_extra_waste_pp": 3.0,
+    "fc_unseen_home_not_worse": true,
+    "qoe_f1_gain": 0.05,
+    "qoe_fa_ratio": 1.0,
+    "qoe_ood_not_worse": true
+  },
+  "versions": {
+    "numpy": "2.4.6",
+    "pandas": "2.2.3",
+    "scikit-learn": "1.6.1",
+    "lightgbm": "4.6.0",
+    "joblib": "1.6.0",
+    "scipy": "1.16.3"
+  }
+}
