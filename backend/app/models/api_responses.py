@@ -13,6 +13,14 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from backend.app.models.schemas import (
+    ClientId,
+    ObservationEnvironment,
+    ObservationScope,
+    ObservationSource,
+    TelemetryObservation,
+)
+
 
 SafeErrorCode = Annotated[
     str,
@@ -126,6 +134,43 @@ class CollectorsResponse(BaseModel):
 
     observed_at: datetime
     collectors: list[CollectorHealth]
+
+    @field_validator("observed_at")
+    @classmethod
+    def normalize_observed_at(cls, value: datetime) -> datetime:
+        return _require_utc(value)
+
+
+class ObservationFilters(BaseModel):
+    """Validated filters echoed back with a current-observation response."""
+
+    model_config = ConfigDict(extra="forbid", use_enum_values=True)
+
+    source: ObservationSource | None = None
+    scope: ObservationScope | None = None
+    environment: ObservationEnvironment | None = None
+    client_id: ClientId | None = None
+
+
+class ObservationItem(BaseModel):
+    """One stored observation with its storage identifiers."""
+
+    model_config = ConfigDict(extra="forbid", use_enum_values=True)
+
+    id: int = Field(ge=1)
+    legacy_sample_id: int | None = Field(default=None, ge=1)
+    observation: TelemetryObservation
+
+
+class CurrentObservationsResponse(BaseModel):
+    """Envelope for ``GET /api/v1/observations/current``."""
+
+    model_config = ConfigDict(extra="forbid", use_enum_values=True)
+
+    observed_at: datetime
+    count: int = Field(ge=0)
+    filters: ObservationFilters
+    observations: list[ObservationItem]
 
     @field_validator("observed_at")
     @classmethod
