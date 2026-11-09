@@ -1,9 +1,12 @@
 # Part 1 — Observe: Current Audit and Dependency Checklist
 
 **Audit date:** 2026-11-09
+**Updated:** 2026-11-09 (Modules 1–4 status; Module 4 storage layer complete)
 **Branch:** `main`
-**Baseline test command:** `.venv\Scripts\python.exe -m pytest -q`
-**Baseline result:** 106 passed
+**Original baseline test command:** `.venv\Scripts\python.exe -m pytest -q`
+**Original baseline result:** 106 passed
+**Current regression command:** `.venv/bin/python -m pytest -q`
+**Current regression result:** 215 passed
 
 ## Scope
 
@@ -39,10 +42,10 @@ The two application paths do not share schemas, persistence, health reporting, o
 | Windows Mobile Hotspot | PARTIAL | `hotspot_bandwidth_monitor.py`, `monitoring_service.py` | Correctly aggregate-only, but hardcoded adapter default and separate storage/query convention | Tests proving aggregate scope and no client identity |
 | Existing Windows FastAPI app | PARTIAL | `backend/app/main.py`, `backend/app/api/monitoring.py` | Functional endpoints, but no collector/database/lab health model and no Linux integration | API contract tests and health failure tests |
 | Linux per-client counters | COMPLETE | `gateway/accounting.py`, `gateway/collector.py` | Reusable sysfs reader, configurable inventory, rate/reset/disappearance handling, and per-client isolation; legacy `read_bytes()` delegates to the shared reader | Unit tests plus real three- and five-client Ubuntu runs in `docs/MODULE3_EVIDENCE.md` |
-| Linux anonymous IDs | PARTIAL | `gateway/collector.py` | Random in-memory IDs exist, but no lifecycle registry, stable session semantics, validation, or privacy tests | Registry lifecycle and forbidden-field tests |
+| Linux anonymous IDs | COMPLETE | `backend/app/services/client_registry.py`, `gateway/collector.py` | Module 2 completed the runtime-only registry with lifecycle, stable labels, memory-only address associations, validation, and privacy tests | Registry lifecycle, forbidden-field, and persistence-boundary tests |
 | Linux gateway API | PARTIAL / INTEGRATION BROKEN | `gateway/api.py` | Separate FastAPI app, same default port, policy/control routes mixed into observation path, dashboard does not consume it | Unified API integration tests; Part 1 must not expose arbitrary commands |
-| Shared telemetry schema | MISSING | `backend/app/models/schemas.py` is empty | Windows and Linux dictionaries have unrelated field names and provenance semantics | Pydantic model tests and cross-source fixtures |
-| SQLite aggregate history | PARTIAL | `network/telemetry/metrics_store.py` | Aggregate-only schema; no observation source/type/client separation or migration versioning | Migration, bounded query, and separation tests |
+| Shared telemetry schema | COMPLETE | `backend/app/models/schemas.py` | Module 1 added typed observation metadata, source/scope/quality/environment vocabulary, UTC validation, client-scope rules, and forbidden-field rejection | `tests/unit/test_observation_schemas.py` |
+| SQLite aggregate history | COMPLETE | `network/telemetry/metrics_store.py` | Module 4 added versioned non-destructive migrations, canonical aggregate/per-client observation storage, anonymous client persistence, bounded filtered history queries, privacy validation, and concurrency/large-query tests; legacy `network_samples` remains intact | `tests/unit/test_database_migrations.py`, `test_client_persistence.py`, `test_observation_persistence.py`, `test_history_queries.py`, `test_storage_privacy.py`, `test_storage_integration.py`, `test_storage_reliability.py` |
 | Unified observation API | MISSING | `backend/app/main.py`, `backend/app/api/*` | No gateway status, topology, client list, per-client current/history, or lab routes | API unit/integration/privacy tests |
 | Lab setup/reset | COMPLETE | `scripts/setup_gateway.sh`, `scripts/cleanup_gateway.sh`, `scripts/lab_common.sh` | Default three clients, configurable to five or more, validated names/counts, ownership markers/state, idempotent setup/cleanup, and only project-owned nft/interface changes | Real three- and five-client reset/cleanup runs in `docs/MODULE3_EVIDENCE.md` |
 | Scenario A | PARTIAL | `experiments/run_call_vs_download.py`, shell scripts | Existing experiment is not yet the required single reproducible baseline workflow with standard CSV, plots, settings, and versions | Ubuntu scenario run and artifact validation |
@@ -54,25 +57,56 @@ The two application paths do not share schemas, persistence, health reporting, o
 
 Existing code generally avoids packet payload inspection and does not persist IP/MAC addresses in the aggregate SQLite table. However, the repository does not yet have a centralized privacy boundary or tests that reject forbidden identity fields across all new storage/API paths. The gateway API also contains privileged helper execution for policy controls; Part 1 observation endpoints must not generalize this into arbitrary command execution.
 
+**Module 4 update:** the storage layer now has a centralized privacy boundary and automated tests for schema, rows, serialization, error metadata, and address-mapping exclusion. API-layer privacy tests remain future work because the unified observation API is not implemented yet.
+
 Tracked generated data exists under `data/capacity_forecasting/` and experiment outputs under `experiments/`. These are existing project artifacts and require a separate decision before changing `.gitignore` or removing anything. Runtime SQLite files are already ignored by `.gitignore`.
+
+## Module status update (2026-11-09)
+
+This section supersedes the earlier `MISSING`/`PARTIAL` statuses for the rows
+noted below. The original audit text above is retained for history.
+
+- **Module 1 — Shared Observation Schema: COMPLETE.** `backend/app/models/schemas.py`
+  defines the shared source/scope/quality/environment vocabulary, UTC timestamp
+  validation, client-scope rules, and forbidden-identity rejection.
+- **Module 2 — Anonymous Client Registry: COMPLETE.** `backend/app/services/client_registry.py`
+  is runtime-only, assigns opaque IDs and `Client NN` labels, keeps address
+  associations transient, and never serializes them.
+- **Module 3 — Genuine Per-Client Linux Accounting: COMPLETE.** `gateway/accounting.py`
+  reads one gateway-side veth per client, handles no-baseline/reset/missing
+  interfaces without fabricating rates, and passes real three- and five-client
+  Ubuntu runs in `docs/MODULE3_EVIDENCE.md`.
+- **Module 4 — Database and Historical Telemetry: COMPLETE for the storage
+  layer.** `network/telemetry/metrics_store.py` now provides versioned,
+  transactional, non-destructive migrations; canonical aggregate and per-client
+  observation storage; anonymous client persistence; bounded filtered history
+  queries; privacy validation; and concurrency/large-query tests. The legacy
+  `network_samples` table and all existing rows remain untouched. See
+  `docs/MODULE4_DATABASE.md`.
+
+Module 4 limitation: no real `data/experience_budget.sqlite3` file exists in this
+checkout. Migration was tested against representative temporary legacy databases,
+not against an actual production file. The unified observation API and dashboard
+history integration remain later-module work.
 
 ## Dependency-ordered Part 1 checklist
 
 - [x] Repository audit and feature inventory.
-- [ ] Define common telemetry schema, provenance vocabulary, and UTC serialization.
-- [ ] Add anonymous client registry with memory-only address associations and privacy tests.
+- [x] Define common telemetry schema, provenance vocabulary, and UTC serialization.
+- [x] Add anonymous client registry with memory-only address associations and privacy tests.
 - [x] Extract robust Linux per-client counter collector with reset/disconnect handling.
 - [x] Add rate calculation and telemetry-quality/staleness semantics.
-- [ ] Migrate SQLite storage with aggregate/per-client separation and bounded queries.
+- [x] Migrate SQLite storage with aggregate/per-client separation and bounded queries.
 - [ ] Integrate observation routes and health checks into one FastAPI application.
 - [x] Harden namespace/veth lab setup, reset, ownership, and dependency checks.
 - [ ] Build reproducible Scenario A CSV/plot/tool-version workflow.
 - [ ] Upgrade the existing dashboard using API-provided topology and measurements.
 - [ ] Consolidate documentation and run final cross-layer regression tests.
 
-## First atomic implementation task
+## First atomic implementation task (completed)
 
-Implement the shared observation schema only. It must provide typed, privacy-safe representations for:
+This task was completed in Module 1. It provided typed, privacy-safe
+representations for:
 
 - UTC measurement timestamps.
 - Source/provenance (`windows_host`, `windows_hotspot`, `linux_gateway`, `linux_namespace_lab`).
