@@ -1,0 +1,43 @@
+{
+  "capacity_schedule": [
+    {
+      "capacity_mbps": 100,
+      "offset_s": 0.0
+    }
+  ],
+  "cleanup_error": "refusing to remove qdisc: expected runner TBF 100 Mbps, found 12.5 Mbps",
+  "duration_s": 60.0,
+  "finished_at_utc": "2026-11-08T14:55:02.560044+00:00",
+  "output_csv": "/home/vboxuser/Projects/CN_KA_BAAP/data/capacity_forecasting/raw/capacity_28829a79-02a5-4052-849f-7f05183704dc.csv",
+  "qdisc_snapshots": [],
+  "random_seed": 20261108,
+  "run_complete": false,
+  "run_id": "28829a79-02a5-4052-849f-7f05183704dc",
+  "sample_interval_s": 1.0,
+  "scenario_id": "constant-100mbit-first",
+  "scenario_type": "constant",
+  "schema_version": "1.0",
+  "started_at_utc": "2026-11-08T14:55:00.518424+00:00",
+  "traffic_configuration": {
+    "clients": [
+      "client1",
+      "client2",
+      "client3"
+    ],
+    "direction": "reverse download",
+    "duration_s": 60.0,
+    "protocol": "TCP",
+    "seeded_client_launch_delays_s": {
+      "client1": 0.14806602261295737,
+      "client2": 0.06758566460962741,
+      "client3": 0.03346350553840077
+    },
+    "server_ports": [
+      5201,
+      5202,
+      5203
+    ],
+    "tool": "iperf3"
+  },
+  "traffic_profile": "three-client-reverse-tcp-iperf3"
+}

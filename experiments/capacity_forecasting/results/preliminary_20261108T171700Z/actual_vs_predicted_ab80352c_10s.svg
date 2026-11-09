@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="480" viewBox="0 0 900 480">
+<rect width="100%" height="100%" fill="white"/>
+<text x="450.0" y="25" text-anchor="middle" font-family="sans-serif" font-size="16">periodic run ab80352c +10s</text>
+<path d="M 70 45 V 425 H 875" fill="none" stroke="#64748b"/>
+<text x="472.5" y="468" text-anchor="middle" font-family="sans-serif" font-size="12">Origin elapsed time (s)</text>
+<text x="18" y="235.0" transform="rotate(-90 18 235.0)" text-anchor="middle" font-family="sans-serif" font-size="12">Configured capacity (Mbps)</text>
+<path d="M 70.0 45.0 L 87.0 45.0 L 104.3 45.0 L 122.8 45.0 L 138.5 45.0 L 154.4 45.0 L 175.1 45.0 L 187.8 45.0 L 208.2 45.0 L 257.2 425.0 L 274.3 425.0 L 291.9 425.0 L 309.9 425.0 L 322.6 425.0 L 355.6 425.0 L 393.0 45.0 L 409.4 45.0 L 424.9 45.0 L 443.2 45.0 L 458.0 45.0 L 481.0 45.0 L 489.7 45.0 L 524.2 45.0 L 557.3 425.0 L 575.2 425.0 L 591.6 425.0 L 613.3 425.0 L 624.3 425.0 L 659.6 425.0 L 710.0 45.0 L 726.7 45.0 L 758.8 45.0 L 780.3 45.0 L 790.8 45.0 L 808.0 45.0 L 827.1 45.0 L 841.4 45.0 L 875.0 45.0" fill="none" stroke="#111827" stroke-width="2"/>
+<circle cx="70.0" cy="45.0" r="2.8" fill="#111827"/>
+<circle cx="87.0" cy="45.0" r="2.8" fill="#111827"/>
+<circle cx="104.3" cy="45.0" r="2.8" fill="#111827"/>
+<circle cx="122.8" cy="45.0" r="2.8" fill="#111827"/>
+<circle cx="138.5" cy="45.0" r="2.8" fill="#111827"/>
+<circle cx="154.4" cy="45.0" r="2.8" fill="#111827"/>
+<circle cx="175.1" cy="45.0" r="2.8" fill="#111827"/>
+<circle cx="187.8" cy="45.0" r="2.8" fill="#111827"/>
+<circle cx="208.2" cy="45.0" r="2.8" fill="#111827"/>
+<circle cx="257.2" cy="425.0" r="2.8" fill="#111827"/>
+<circle cx="274.3" cy="425.0" r="2.8" fill="#111827"/>
+<circle cx="291.9" cy="425.0" r="2.8" fill="#111827"/>
+<circle cx="309.9" cy="425.0" r="2.8" fill="#111827"/>
+<circle cx="322.6" cy="425.0" r="2.8" fill="#111827"/>
+<circle cx="355.6" cy="425.0" r="2.8" fill="#111827"/>
+<circle cx="393.0" cy="45.0" r="2.8" fill="#111827"/>
+<circle cx="409.4" cy="45.0" r="2.8" fill="#111827"/>
+<circle cx="424.9" cy="45.0" r="2.8" fill="#111827"/>
+<circle cx="443.2" cy="45.0" r="2.8" fill="#111827"/>
+<circle cx="458.0" cy="45.0" r="2.8" fill="#111827"/>
+<circle cx="481.0" cy="45.0" r="2.8" fill="#111827"/>
+<circle cx="489.7" cy="45.0" r="2.8" fill="#111827"/>
+<circle cx="524.2" cy="45.0" r="2.8" fill="#111827"/>
+<circle cx="557.3" cy="425.0" r="2.8" fill="#111827"/>
+<circle cx="575.2" cy="425.0" r="2.8" fill="#111827"/>
+<circle cx="591.6" cy="425.0" r="2.8" fill="#111827"/>
+<circle cx="613.3" cy="425.0" r="2.8" fill="#111827"/>
+<circle cx="624.3" cy="425.0" r="2.8" fill="#111827"/>
+<circle cx="659.6" cy="425.0" r="2.8" fill="#111827"/>
+<circle cx="710.0" cy="45.0" r="2.8" fill="#111827"/>
+<circle cx="726.7" cy="45.0" r="2.8" fill="#111827"/>
+<circle cx="758.8" cy="45.0" r="2.8" fill="#111827"/>
+<circle cx="780.3" cy="45.0" r="2.8" fill="#111827"/>
+<circle cx="790.8" cy="45.0" r="2.8" fill="#111827"/>
+<circle cx="808.0" cy="45.0" r="2.8" fill="#111827"/>
+<circle cx="827.1" cy="45.0" r="2.8" fill="#111827"/>
+<circle cx="841.4" cy="45.0" r="2.8" fill="#111827"/>
+<circle cx="875.0" cy="45.0" r="2.8" fill="#111827"/>
+<text x="90" y="445" font-family="sans-serif" font-size="12" fill="#111827">Actual</text>
+<path d="M 70.0 425.0 L 87.0 425.0 L 104.3 425.0 L 122.8 425.0 L 138.5 425.0 L 154.4 425.0 L 175.1 425.0 L 187.8 425.0 L 208.2 45.0 L 257.2 45.0 L 274.3 45.0 L 291.9 45.0 L 309.9 45.0 L 322.6 45.0 L 355.6 45.0 L 393.0 425.0 L 409.4 425.0 L 424.9 425.0 L 443.2 425.0 L 458.0 425.0 L 481.0 425.0 L 489.7 425.0 L 524.2 425.0 L 557.3 45.0 L 575.2 45.0 L 591.6 45.0 L 613.3 45.0 L 624.3 45.0 L 659.6 45.0 L 710.0 425.0 L 726.7 425.0 L 758.8 425.0 L 780.3 425.0 L 790.8 425.0 L 808.0 425.0 L 827.1 425.0 L 841.4 425.0 L 875.0 45.0" fill="none" stroke="#2563eb" stroke-width="2"/>
+<circle cx="70.0" cy="425.0" r="2.8" fill="#2563eb"/>
+<circle cx="87.0" cy="425.0" r="2.8" fill="#2563eb"/>
+<circle cx="104.3" cy="425.0" r="2.8" fill="#2563eb"/>
+<circle cx="122.8" cy="425.0" r="2.8" fill="#2563eb"/>
+<circle cx="138.5" cy="425.0" r="2.8" fill="#2563eb"/>
+<circle cx="154.4" cy="425.0" r="2.8" fill="#2563eb"/>
+<circle cx="175.1" cy="425.0" r="2.8" fill="#2563eb"/>
+<circle cx="187.8" cy="425.0" r="2.8" fill="#2563eb"/>
+<circle cx="208.2" cy="45.0" r="2.8" fill="#2563eb"/>
+<circle cx="257.2" cy="45.0" r="2.8" fill="#2563eb"/>
+<circle cx="274.3" cy="45.0" r="2.8" fill="#2563eb"/>
+<circle cx="291.9" cy="45.0" r="2.8" fill="#2563eb"/>
+<circle cx="309.9" cy="45.0" r="2.8" fill="#2563eb"/>
+<circle cx="322.6" cy="45.0" r="2.8" fill="#2563eb"/>
+<circle cx="355.6" cy="45.0" r="2.8" fill="#2563eb"/>
+<circle cx="393.0" cy="425.0" r="2.8" fill="#2563eb"/>
+<circle cx="409.4" cy="425.0" r="2.8" fill="#2563eb"/>
+<circle cx="424.9" cy="425.0" r="2.8" fill="#2563eb"/>
+<circle cx="443.2" cy="425.0" r="2.8" fill="#2563eb"/>
+<circle cx="458.0" cy="425.0" r="2.8" fill="#2563eb"/>
+<circle cx="481.0" cy="425.0" r="2.8" fill="#2563eb"/>
+<circle cx="489.7" cy="425.0" r="2.8" fill="#2563eb"/>
+<circle cx="524.2" cy="425.0" r="2.8" fill="#2563eb"/>
+<circle cx="557.3" cy="45.0" r="2.8" fill="#2563eb"/>
+<circle cx="575.2" cy="45.0" r="2.8" fill="#2563eb"/>
+<circle cx="591.6" cy="45.0" r="2.8" fill="#2563eb"/>
+<circle cx="613.3" cy="45.0" r="2.8" fill="#2563eb"/>
+<circle cx="624.3" cy="45.0" r="2.8" fill="#2563eb"/>
+<circle cx="659.6" cy="45.0" r="2.8" fill="#2563eb"/>
+<circle cx="710.0" cy="425.0" r="2.8" fill="#2563eb"/>
+<circle cx="726.7" cy="425.0" r="2.8" fill="#2563eb"/>
+<circle cx="758.8" cy="425.0" r="2.8" fill="#2563eb"/>
+<circle cx="780.3" cy="425.0" r="2.8" fill="#2563eb"/>
+<circle cx="790.8" cy="425.0" r="2.8" fill="#2563eb"/>
+<circle cx="808.0" cy="425.0" r="2.8" fill="#2563eb"/>
+<circle cx="827.1" cy="425.0" r="2.8" fill="#2563eb"/>
+<circle cx="841.4" cy="425.0" r="2.8" fill="#2563eb"/>
+<circle cx="875.0" cy="45.0" r="2.8" fill="#2563eb"/>
+<text x="250" y="445" font-family="sans-serif" font-size="12" fill="#2563eb">Persistence</text>
+</svg>

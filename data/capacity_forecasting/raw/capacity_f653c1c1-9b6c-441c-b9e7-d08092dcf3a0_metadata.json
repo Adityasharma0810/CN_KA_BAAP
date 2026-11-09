@@ -1,0 +1,88 @@
+{
+  "capacity_schedule": [
+    {
+      "capacity_mbps": 100,
+      "offset_s": 0.0
+    }
+  ],
+  "collector_command": [
+    "/home/vboxuser/Projects/CN_KA_BAAP/.venv/bin/python",
+    "-m",
+    "experiments.capacity_forecasting.collect_gateway_telemetry",
+    "--output-file",
+    "/home/vboxuser/Projects/CN_KA_BAAP/data/capacity_forecasting/raw/capacity_f653c1c1-9b6c-441c-b9e7-d08092dcf3a0.csv",
+    "--run-id",
+    "f653c1c1-9b6c-441c-b9e7-d08092dcf3a0",
+    "--scenario-id",
+    "constant-100mbit-run-02-20261108",
+    "--scenario-type",
+    "constant",
+    "--random-seed",
+    "202611081",
+    "--traffic-profile",
+    "three-client-reverse-tcp-iperf3",
+    "--sampling-interval",
+    "1.0",
+    "--sampling-tolerance",
+    "0.25",
+    "--duration",
+    "60.0"
+  ],
+  "collector_started_at_utc": "2026-11-08T16:18:48.393936+00:00",
+  "csv_filename_run_id": "f653c1c1-9b6c-441c-b9e7-d08092dcf3a0",
+  "duration_s": 60.0,
+  "finished_at_utc": "2026-11-08T16:19:55.511917+00:00",
+  "output_csv": "/home/vboxuser/Projects/CN_KA_BAAP/data/capacity_forecasting/raw/capacity_f653c1c1-9b6c-441c-b9e7-d08092dcf3a0.csv",
+  "qdisc_snapshots": [
+    {
+      "observed_at_utc": "2026-11-08T16:18:47.954852+00:00",
+      "requested_capacity_mbps": 100,
+      "tc_json": [
+        {
+          "handle": "8047:",
+          "kind": "tbf",
+          "options": {
+            "burst": "300Kb/1",
+            "lat": 50000,
+            "linklayer": "ethernet",
+            "mpu": 0,
+            "rate": 12500000
+          },
+          "refcnt": 2,
+          "root": true
+        }
+      ]
+    }
+  ],
+  "random_seed": 202611081,
+  "run_complete": true,
+  "run_id": "f653c1c1-9b6c-441c-b9e7-d08092dcf3a0",
+  "sample_cadence_tolerance_s": 0.25,
+  "sample_interval_s": 1.0,
+  "scenario_id": "constant-100mbit-run-02-20261108",
+  "scenario_type": "constant",
+  "schema_version": "1.1",
+  "started_at_utc": "2026-11-08T16:18:47.173844+00:00",
+  "traffic_configuration": {
+    "clients": [
+      "client1",
+      "client2",
+      "client3"
+    ],
+    "direction": "reverse download",
+    "duration_s": 60.0,
+    "protocol": "TCP",
+    "seeded_client_launch_delays_s": {
+      "client1": 0.037551301718605434,
+      "client2": 0.07409131476134309,
+      "client3": 0.013290472402431341
+    },
+    "server_ports": [
+      5201,
+      5202,
+      5203
+    ],
+    "tool": "iperf3"
+  },
+  "traffic_profile": "three-client-reverse-tcp-iperf3"
+}

@@ -1,0 +1,6 @@
+[
+  {
+    "file": "capacity_7613a820-508e-46cf-bcc5-9845e6557b25.csv",
+    "reason": "/home/vboxuser/Projects/CN_KA_BAAP/data/capacity_forecasting/raw/capacity_7613a820-508e-46cf-bcc5-9845e6557b25.csv:2: row run_id '53664996-46d3-4ffe-967b-723cd6714426' does not match CSV filename run_id '7613a820-508e-46cf-bcc5-9845e6557b25'"
+  }
+]

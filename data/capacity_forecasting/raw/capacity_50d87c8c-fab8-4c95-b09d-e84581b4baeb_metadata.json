@@ -1,0 +1,203 @@
+{
+  "capacity_schedule": [
+    {
+      "capacity_mbps": 80,
+      "offset_s": 0.0
+    },
+    {
+      "capacity_mbps": 120,
+      "offset_s": 10.0
+    },
+    {
+      "capacity_mbps": 80,
+      "offset_s": 20.0
+    },
+    {
+      "capacity_mbps": 120,
+      "offset_s": 30.0
+    },
+    {
+      "capacity_mbps": 80,
+      "offset_s": 40.0
+    },
+    {
+      "capacity_mbps": 120,
+      "offset_s": 50.0
+    }
+  ],
+  "collector_command": [
+    "/home/vboxuser/Projects/CN_KA_BAAP/.venv/bin/python",
+    "-m",
+    "experiments.capacity_forecasting.collect_gateway_telemetry",
+    "--output-file",
+    "/home/vboxuser/Projects/CN_KA_BAAP/data/capacity_forecasting/raw/capacity_50d87c8c-fab8-4c95-b09d-e84581b4baeb.csv",
+    "--run-id",
+    "50d87c8c-fab8-4c95-b09d-e84581b4baeb",
+    "--scenario-id",
+    "periodic-80-120-run-03-20261108",
+    "--scenario-type",
+    "periodic",
+    "--random-seed",
+    "202611088",
+    "--traffic-profile",
+    "three-client-reverse-tcp-iperf3",
+    "--sampling-interval",
+    "1.0",
+    "--sampling-tolerance",
+    "0.25",
+    "--duration",
+    "60.0"
+  ],
+  "collector_started_at_utc": "2026-11-08T16:40:30.793929+00:00",
+  "csv_filename_run_id": "50d87c8c-fab8-4c95-b09d-e84581b4baeb",
+  "duration_s": 60.0,
+  "finished_at_utc": "2026-11-08T16:41:39.076738+00:00",
+  "output_csv": "/home/vboxuser/Projects/CN_KA_BAAP/data/capacity_forecasting/raw/capacity_50d87c8c-fab8-4c95-b09d-e84581b4baeb.csv",
+  "qdisc_snapshots": [
+    {
+      "observed_at_utc": "2026-11-08T16:40:30.158410+00:00",
+      "requested_capacity_mbps": 80,
+      "tc_json": [
+        {
+          "handle": "804e:",
+          "kind": "tbf",
+          "options": {
+            "burst": "260Kb/1",
+            "lat": 50000,
+            "linklayer": "ethernet",
+            "mpu": 0,
+            "rate": 10000000
+          },
+          "refcnt": 2,
+          "root": true
+        }
+      ]
+    },
+    {
+      "observed_at_utc": "2026-11-08T16:40:44.224808+00:00",
+      "requested_capacity_mbps": 120,
+      "tc_json": [
+        {
+          "handle": "804e:",
+          "kind": "tbf",
+          "options": {
+            "burst": "340Kb/1",
+            "lat": 50000,
+            "linklayer": "ethernet",
+            "mpu": 0,
+            "rate": 15000000
+          },
+          "refcnt": 2,
+          "root": true
+        }
+      ]
+    },
+    {
+      "observed_at_utc": "2026-11-08T16:40:53.295298+00:00",
+      "requested_capacity_mbps": 80,
+      "tc_json": [
+        {
+          "handle": "804e:",
+          "kind": "tbf",
+          "options": {
+            "burst": "260Kb/1",
+            "lat": 50000,
+            "linklayer": "ethernet",
+            "mpu": 0,
+            "rate": 10000000
+          },
+          "refcnt": 2,
+          "root": true
+        }
+      ]
+    },
+    {
+      "observed_at_utc": "2026-11-08T16:41:02.407097+00:00",
+      "requested_capacity_mbps": 120,
+      "tc_json": [
+        {
+          "handle": "804e:",
+          "kind": "tbf",
+          "options": {
+            "burst": "340Kb/1",
+            "lat": 50000,
+            "linklayer": "ethernet",
+            "mpu": 0,
+            "rate": 15000000
+          },
+          "refcnt": 2,
+          "root": true
+        }
+      ]
+    },
+    {
+      "observed_at_utc": "2026-11-08T16:41:12.236243+00:00",
+      "requested_capacity_mbps": 80,
+      "tc_json": [
+        {
+          "handle": "804e:",
+          "kind": "tbf",
+          "options": {
+            "burst": "260Kb/1",
+            "lat": 50000,
+            "linklayer": "ethernet",
+            "mpu": 0,
+            "rate": 10000000
+          },
+          "refcnt": 2,
+          "root": true
+        }
+      ]
+    },
+    {
+      "observed_at_utc": "2026-11-08T16:41:21.230598+00:00",
+      "requested_capacity_mbps": 120,
+      "tc_json": [
+        {
+          "handle": "804e:",
+          "kind": "tbf",
+          "options": {
+            "burst": "340Kb/1",
+            "lat": 50000,
+            "linklayer": "ethernet",
+            "mpu": 0,
+            "rate": 15000000
+          },
+          "refcnt": 2,
+          "root": true
+        }
+      ]
+    }
+  ],
+  "random_seed": 202611088,
+  "run_complete": true,
+  "run_id": "50d87c8c-fab8-4c95-b09d-e84581b4baeb",
+  "sample_cadence_tolerance_s": 0.25,
+  "sample_interval_s": 1.0,
+  "scenario_id": "periodic-80-120-run-03-20261108",
+  "scenario_type": "periodic",
+  "schema_version": "1.1",
+  "started_at_utc": "2026-11-08T16:40:28.471937+00:00",
+  "traffic_configuration": {
+    "clients": [
+      "client1",
+      "client2",
+      "client3"
+    ],
+    "direction": "reverse download",
+    "duration_s": 60.0,
+    "protocol": "TCP",
+    "seeded_client_launch_delays_s": {
+      "client1": 0.10978265409380612,
+      "client2": 0.01633917963001247,
+      "client3": 0.10320566829071925
+    },
+    "server_ports": [
+      5201,
+      5202,
+      5203
+    ],
+    "tool": "iperf3"
+  },
+  "traffic_profile": "three-client-reverse-tcp-iperf3"
+}

@@ -1,0 +1,91 @@
+{
+  "holt_winters_candidates": [
+    {
+      "alpha": 0.2,
+      "beta": 0.05,
+      "gamma": 0.05
+    },
+    {
+      "alpha": 0.3,
+      "beta": 0.1,
+      "gamma": 0.1
+    },
+    {
+      "alpha": 0.5,
+      "beta": 0.1,
+      "gamma": 0.1
+    }
+  ],
+  "holt_winters_season_length_samples": 20,
+  "horizons_seconds": [
+    5,
+    10,
+    30
+  ],
+  "lightgbm_available": true,
+  "lightgbm_selected_configs": {
+    "5": {
+      "learning_rate": 0.05,
+      "max_depth": 3,
+      "min_data_in_leaf": 5,
+      "n_estimators": 100,
+      "num_leaves": 7,
+      "num_threads": 1,
+      "objective": "regression",
+      "seed": 20261108,
+      "verbosity": -1
+    },
+    "10": {
+      "learning_rate": 0.05,
+      "max_depth": 3,
+      "min_data_in_leaf": 5,
+      "n_estimators": 100,
+      "num_leaves": 7,
+      "num_threads": 1,
+      "objective": "regression",
+      "seed": 20261108,
+      "verbosity": -1
+    },
+    "30": {
+      "learning_rate": 0.05,
+      "max_depth": 3,
+      "min_data_in_leaf": 5,
+      "n_estimators": 50,
+      "num_leaves": 7,
+      "num_threads": 1,
+      "objective": "regression",
+      "seed": 20261108,
+      "verbosity": -1
+    }
+  },
+  "lightgbm_version": "4.7.0",
+  "raw_csv_paths": [
+    "/home/vboxuser/Projects/CN_KA_BAAP/data/capacity_forecasting/raw/capacity_034ee0c3-6399-4f8c-941e-d24f668a5f7b.csv",
+    "/home/vboxuser/Projects/CN_KA_BAAP/data/capacity_forecasting/raw/capacity_1833b84c-d80a-4278-94de-8d0d3488c8f8.csv",
+    "/home/vboxuser/Projects/CN_KA_BAAP/data/capacity_forecasting/raw/capacity_50d87c8c-fab8-4c95-b09d-e84581b4baeb.csv",
+    "/home/vboxuser/Projects/CN_KA_BAAP/data/capacity_forecasting/raw/capacity_53bb4605-3607-4552-a3d2-b737ade0ca3e.csv",
+    "/home/vboxuser/Projects/CN_KA_BAAP/data/capacity_forecasting/raw/capacity_667462a6-16e8-47b9-ba71-3f54ec79c2f7.csv",
+    "/home/vboxuser/Projects/CN_KA_BAAP/data/capacity_forecasting/raw/capacity_77c12eef-c137-4c2d-bd0c-2e01c9ce199f.csv",
+    "/home/vboxuser/Projects/CN_KA_BAAP/data/capacity_forecasting/raw/capacity_ab80352c-146f-493c-b55a-9429dd830c96.csv",
+    "/home/vboxuser/Projects/CN_KA_BAAP/data/capacity_forecasting/raw/capacity_b7f3620d-30ca-4835-b25c-8e5e9208d9e4.csv",
+    "/home/vboxuser/Projects/CN_KA_BAAP/data/capacity_forecasting/raw/capacity_cf0a6412-7054-4b12-939c-f87287768fb6.csv",
+    "/home/vboxuser/Projects/CN_KA_BAAP/data/capacity_forecasting/raw/capacity_f653c1c1-9b6c-441c-b9e7-d08092dcf3a0.csv"
+  ],
+  "seasonal_naive_candidates_seconds": [
+    20.0,
+    30.0,
+    40.0,
+    60.0
+  ],
+  "selected_holt_winters": {
+    "alpha": 0.5,
+    "beta": 0.1,
+    "gamma": 0.1
+  },
+  "selected_seasonal_naive_seconds": 60.0,
+  "target": "configured shared root-TBF capacity in Mbps",
+  "target_timestamp_tolerance_s": 0.25,
+  "test_runs": 2,
+  "training_runs": 6,
+  "validation_runs": 2
+}

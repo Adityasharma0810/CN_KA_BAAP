@@ -1,0 +1,106 @@
+{
+  "holt_winters": [
+    {
+      "config": {
+        "alpha": 0.2,
+        "beta": 0.05,
+        "gamma": 0.05
+      },
+      "count": 9,
+      "mae": 41.14394416002401
+    },
+    {
+      "config": {
+        "alpha": 0.3,
+        "beta": 0.1,
+        "gamma": 0.1
+      },
+      "count": 9,
+      "mae": 51.829658669084765
+    },
+    {
+      "config": {
+        "alpha": 0.5,
+        "beta": 0.1,
+        "gamma": 0.1
+      },
+      "count": 9,
+      "mae": 38.59283717797844
+    }
+  ],
+  "lightgbm": {
+    "5": [
+      {
+        "count": 89,
+        "mae": 13.089025582513795,
+        "n_estimators": 20
+      },
+      {
+        "count": 89,
+        "mae": 9.966242870723885,
+        "n_estimators": 50
+      },
+      {
+        "count": 89,
+        "mae": 9.22636932079914,
+        "n_estimators": 100
+      }
+    ],
+    "10": [
+      {
+        "count": 80,
+        "mae": 16.090352798218095,
+        "n_estimators": 20
+      },
+      {
+        "count": 80,
+        "mae": 12.44960869891145,
+        "n_estimators": 50
+      },
+      {
+        "count": 80,
+        "mae": 11.395529140708359,
+        "n_estimators": 100
+      }
+    ],
+    "30": [
+      {
+        "count": 49,
+        "mae": 11.594036001222282,
+        "n_estimators": 20
+      },
+      {
+        "count": 49,
+        "mae": 10.654143308430374,
+        "n_estimators": 50
+      },
+      {
+        "count": 49,
+        "mae": 10.945954081499593,
+        "n_estimators": 100
+      }
+    ]
+  },
+  "seasonal_naive": [
+    {
+      "count": 118,
+      "mae": 55.42372881355932,
+      "season_seconds": 20.0
+    },
+    {
+      "count": 135,
+      "mae": 36.888888888888886,
+      "season_seconds": 30.0
+    },
+    {
+      "count": 89,
+      "mae": 4.719101123595506,
+      "season_seconds": 40.0
+    },
+    {
+      "count": 6,
+      "mae": 0.0,
+      "season_seconds": 60.0
+    }
+  ]
+}
