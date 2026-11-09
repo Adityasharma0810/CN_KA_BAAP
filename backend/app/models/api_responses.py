@@ -176,3 +176,36 @@ class CurrentObservationsResponse(BaseModel):
     @classmethod
     def normalize_observed_at(cls, value: datetime) -> datetime:
         return _require_utc(value)
+
+
+class HistoryFilters(ObservationFilters):
+    """Validated filters echoed by a historical-observation response."""
+
+    start: datetime | None = None
+    end: datetime | None = None
+    order: str = Field(pattern=r"^(oldest|newest)$")
+
+    @field_validator("start", "end")
+    @classmethod
+    def normalize_range_timestamp(cls, value: datetime | None) -> datetime | None:
+        return None if value is None else _require_utc(value)
+
+
+class HistoricalObservationsResponse(BaseModel):
+    """Bounded, strictly typed envelope for historical observations."""
+
+    model_config = ConfigDict(extra="forbid", use_enum_values=True)
+
+    requested_at: datetime
+    total_count: int = Field(ge=0)
+    count: int = Field(ge=0)
+    limit: int = Field(ge=1, le=1000)
+    offset: int = Field(ge=0)
+    has_more: bool
+    filters: HistoryFilters
+    observations: list[ObservationItem] = Field(max_length=1000)
+
+    @field_validator("requested_at")
+    @classmethod
+    def normalize_requested_at(cls, value: datetime) -> datetime:
+        return _require_utc(value)

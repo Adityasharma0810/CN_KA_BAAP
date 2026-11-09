@@ -1,5 +1,16 @@
 # Module 5 Product API
 
+## Feature 4 — Historical observations
+
+Historical endpoints query canonical `MetricsStore` observations only. They never start a collector, rewrite timestamps, or infer physical hotspot clients.
+
+- `GET /api/v1/observations/history` returns bounded historical aggregate observations by default. Use `scope=client` or `client_id` to request client observations; aggregate and client rows are never mixed.
+- `GET /api/v1/clients/{client_id}/history` returns only the requested registered anonymous client's observations. Unknown valid IDs return `404 unknown_client`; malformed IDs return `422`.
+
+Both endpoints support `source`, `scope` where applicable, `environment`, inclusive timezone-aware `start` and `end`, `order=oldest|newest`, `limit` from 1 through 1000, and non-negative `offset`. Results are deterministically ordered by observation timestamp and storage ID. Responses report `total_count`, returned `count`, `has_more`, pagination values, echoed filters, and strict `ObservationItem` records.
+
+Invalid timestamps, reversed ranges, incompatible client/aggregate filters, invalid enum values, and out-of-range pagination are rejected with safe `422` responses. Missing databases return an empty history without creating storage; corrupt or unavailable databases return `503 database_unavailable`. Stored values, quality, provenance, stale flags, and original UTC timestamps are preserved. No raw SQL, exception text, paths, addresses, or infrastructure identifiers cross the API boundary.
+
 ## Feature 3 — Current observations
 
 `GET /api/v1/observations/current` returns the newest canonical observation for each requested source, without changing the stored observation timestamp.

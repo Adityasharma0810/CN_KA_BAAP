@@ -2,7 +2,9 @@
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Path
+from typing import Annotated
+
+from fastapi import APIRouter, HTTPException, Path, Query
 from pydantic import TypeAdapter
 
 from backend.app.models.client_responses import (
@@ -10,8 +12,20 @@ from backend.app.models.client_responses import (
     AnonymousClientResponse,
     AnonymousClientsResponse,
 )
-from backend.app.models.schemas import ClientId
+from backend.app.models.api_responses import HistoricalObservationsResponse
+from backend.app.models.schemas import (
+    ClientId,
+    ObservationEnvironment,
+    ObservationSource,
+)
+
 from backend.app.services.lab_accounting_service import lab_accounting_service
+from backend.app.services.observation_query_service import (
+    InvalidFilterError,
+    ObservationQueryError,
+    UnknownClientError,
+    build_historical_observations,
+)
 
 router = APIRouter(prefix="/api/v1/clients", tags=["Clients"])
 _CLIENT_ID = TypeAdapter(ClientId)
@@ -103,3 +117,38 @@ def get_client(
         source="linux_namespace_lab",
         message=None if available else "Linux namespace lab telemetry is unavailable.",
     )
+
+
+@router.get("/{client_id}/history", response_model=HistoricalObservationsResponse)
+def client_history(
+    client_id: str = Path(
+        min_length=14,
+        max_length=40,
+        pattern=r"^client-[a-z0-9]{8,32}$",
+    ),
+    start: Annotated[str | None, Query()] = None,
+    end: Annotated[str | None, Query()] = None,
+    source: Annotated[ObservationSource | None, Query()] = None,
+    environment: Annotated[ObservationEnvironment | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=1000)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    order: Annotated[str, Query(pattern=r"^(oldest|newest)$")] = "newest",
+) -> HistoricalObservationsResponse:
+    try:
+        return build_historical_observations(
+            source=source,
+            environment=environment,
+            client_id=client_id,
+            start=start,
+            end=end,
+            limit=limit,
+            offset=offset,
+            order=order,
+            client_history=True,
+        )
+    except UnknownClientError as error:
+        raise HTTPException(status_code=404, detail="unknown_client") from error
+    except InvalidFilterError as error:
+        raise HTTPException(status_code=422, detail=error.code) from error
+    except ObservationQueryError as error:
+        raise HTTPException(status_code=503, detail="database_unavailable") from error

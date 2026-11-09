@@ -6,7 +6,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
 
-from backend.app.models.api_responses import CurrentObservationsResponse
+from backend.app.models.api_responses import (
+    CurrentObservationsResponse,
+    HistoricalObservationsResponse,
+)
 from backend.app.models.schemas import (
     ClientId,
     ObservationEnvironment,
@@ -18,6 +21,7 @@ from backend.app.services.observation_query_service import (
     ObservationQueryError,
     UnknownClientError,
     build_current_observations,
+    build_historical_observations,
 )
 
 
@@ -57,3 +61,39 @@ def current_observations(
             status_code=503,
             detail="database_unavailable",
         ) from error
+
+
+@router.get(
+    "/observations/history",
+    response_model=HistoricalObservationsResponse,
+    summary="Historical observations",
+)
+def historical_observations(
+    start: Annotated[str | None, Query()] = None,
+    end: Annotated[str | None, Query()] = None,
+    source: Annotated[ObservationSource | None, Query()] = None,
+    scope: Annotated[ObservationScope | None, Query()] = None,
+    environment: Annotated[ObservationEnvironment | None, Query()] = None,
+    client_id: Annotated[ClientId | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=1000)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    order: Annotated[str, Query(pattern=r"^(oldest|newest)$")] = "newest",
+) -> HistoricalObservationsResponse:
+    try:
+        return build_historical_observations(
+            start=start,
+            end=end,
+            source=source,
+            scope=scope,
+            environment=environment,
+            client_id=client_id,
+            limit=limit,
+            offset=offset,
+            order=order,
+        )
+    except InvalidFilterError as error:
+        raise HTTPException(status_code=422, detail=error.code) from error
+    except UnknownClientError as error:
+        raise HTTPException(status_code=404, detail="unknown_client") from error
+    except ObservationQueryError as error:
+        raise HTTPException(status_code=503, detail="database_unavailable") from error
