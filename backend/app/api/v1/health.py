@@ -10,7 +10,7 @@ from backend.app.models.api_responses import (
 )
 from backend.app.services.health_service import (
     build_collectors_health,
-    build_health as build_observation_health,
+    build_observation_health,
 )
 
 

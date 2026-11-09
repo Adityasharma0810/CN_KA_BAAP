@@ -3,37 +3,72 @@ from fastapi.testclient import TestClient
 
 import backend.app.api.monitoring as monitoring_api
 from backend.app.main import app
+from network.telemetry.metrics_store import MetricsStore
 
 
 client = TestClient(app)
 
 
-def test_versioned_health_endpoint(monkeypatch):
-    monkeypatch.setattr("backend.app.api.health.database_available", lambda: True)
-    monkeypatch.setattr("backend.app.api.health.windows_collector_available", lambda: True)
-    monkeypatch.setattr("backend.app.api.health.linux_gateway_available", lambda: False)
-    monkeypatch.setattr("backend.app.api.health.registry_available", lambda: True)
+def test_versioned_health_endpoint(monkeypatch, tmp_path):
+    database_path = tmp_path / "health.sqlite3"
+    MetricsStore(database_path)
+    monkeypatch.setenv("EB_DATABASE_PATH", str(database_path))
 
     response = client.get("/api/v1/health")
 
     assert response.status_code == 200
     body = response.json()
+    assert set(body) == {"status", "observed_at", "components"}
     assert body["status"] == "degraded"
-    assert {item["name"] for item in body["components"]} == {
-        "database", "windows_collector", "linux_gateway", "anonymous_registry"
+    assert isinstance(body["observed_at"], str)
+    assert isinstance(body["components"], dict)
+    assert set(body["components"]) == {
+        "application",
+        "database",
+        "windows_host_collector",
+        "windows_hotspot_collector",
+        "gateway",
+        "client_registry",
     }
+    assert all(
+        isinstance(component, dict) and isinstance(component["status"], str)
+        for component in body["components"].values()
+    )
+    assert {
+        name: component["status"]
+        for name, component in body["components"].items()
+    } == {
+        "application": "healthy",
+        "database": "healthy",
+        "windows_host_collector": "unavailable",
+        "windows_hotspot_collector": "unavailable",
+        "gateway": "unavailable",
+        "client_registry": "healthy",
+    }
+    assert body["components"]["database"]["schema_version"] == 1
+    assert isinstance(body["components"]["client_registry"]["client_count"], int)
     assert "ip" not in response.text.lower()
     assert "mac" not in response.text.lower()
 
 
-def test_collector_health_endpoint(monkeypatch):
-    monkeypatch.setattr("backend.app.api.health.windows_collector_available", lambda: True)
-    monkeypatch.setattr("backend.app.api.health.linux_gateway_available", lambda: False)
+def test_collector_health_endpoint(monkeypatch, tmp_path):
+    monkeypatch.setenv("EB_DATABASE_PATH", str(tmp_path / "health.sqlite3"))
 
     response = client.get("/api/v1/health/collectors")
 
     assert response.status_code == 200
-    assert response.json()["collectors"][1]["status"] == "unavailable"
+    body = response.json()
+    assert set(body) == {"observed_at", "collectors"}
+    assert isinstance(body["observed_at"], str)
+    assert [collector["collector"] for collector in body["collectors"]] == [
+        "windows_host",
+        "windows_hotspot",
+        "linux_gateway",
+    ]
+    assert all(
+        collector["status"] == "unavailable" and collector["stale"] is False
+        for collector in body["collectors"]
+    )
 
 
 def test_health_endpoint():
