@@ -287,6 +287,43 @@ def test_replaying_migration_from_zero_does_not_duplicate_rows(tmp_path):
     assert len(canonical_rows(path)) == 2
 
 
+def test_database_newer_than_application_is_not_modified(tmp_path):
+    path = tmp_path / "future.sqlite3"
+    create_legacy_database(path, legacy_rows())
+    connection = sqlite3.connect(path)
+
+    try:
+        connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION + 1}")
+        connection.commit()
+
+    finally:
+        connection.close()
+
+    with pytest.raises(MigrationError, match="newer"):
+        MetricsStore(path)
+
+    connection = sqlite3.connect(path)
+
+    try:
+        version = connection.execute("PRAGMA user_version").fetchone()[0]
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        count = connection.execute(
+            "SELECT COUNT(*) FROM network_samples"
+        ).fetchone()[0]
+
+    finally:
+        connection.close()
+
+    assert version == SCHEMA_VERSION + 1
+    assert "telemetry_observations" not in tables
+    assert count == 2
+
+
 def test_failed_migration_rolls_back_and_keeps_legacy_data(tmp_path):
     path = tmp_path / "broken.sqlite3"
     connection = sqlite3.connect(path)
