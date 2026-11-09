@@ -3,6 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend.app.api.clients import router as clients_router
 from backend.app.api.health import router as health_router
 from backend.app.api.monitoring import router as monitoring_router
 
@@ -28,6 +29,7 @@ app.add_middleware(
 )
 
 app.include_router(health_router)
+app.include_router(clients_router)
 app.include_router(monitoring_router)
 
 
