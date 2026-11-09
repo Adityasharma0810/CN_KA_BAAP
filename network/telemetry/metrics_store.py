@@ -78,30 +78,60 @@ class MetricsStore:
     def get_samples_by_interface(self, interface_label, limit=100):
         """Retrieve measurements for one interface only."""
 
-        if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
-            raise ValueError("Limit must be a positive integer.")
+        return self.query_history(interface_label=interface_label, limit=limit)
+
+    def query_history(
+        self,
+        *,
+        interface_label=None,
+        start=None,
+        end=None,
+        limit=100,
+        offset=0,
+        order="desc",
+    ):
+        """Return bounded aggregate history using validated SQL parameters."""
+
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 1000:
+            raise ValueError("Limit must be between 1 and 1000.")
+        if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
+            raise ValueError("Offset must be a non-negative integer.")
+        if order not in {"asc", "desc"}:
+            raise ValueError("Order must be asc or desc.")
+        if start is not None and end is not None and start > end:
+            raise ValueError("Start must not be after end.")
+
+        clauses = []
+        parameters = []
+        if interface_label is not None:
+            clauses.append("interface_label = ?")
+            parameters.append(interface_label)
+        if start is not None:
+            clauses.append("recorded_at >= ?")
+            parameters.append(start)
+        if end is not None:
+            clauses.append("recorded_at <= ?")
+            parameters.append(end)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        direction = "ASC" if order == "asc" else "DESC"
 
         connection = self._connect()
-
         try:
             rows = connection.execute(
-                """
+                f"""
                 SELECT * FROM network_samples
-                WHERE interface_label = ?
-                ORDER BY id DESC
-                LIMIT ?
+                {where}
+                ORDER BY recorded_at {direction}, id {direction}
+                LIMIT ? OFFSET ?
                 """,
-                (interface_label, limit),
+                (*parameters, limit, offset),
             ).fetchall()
-
             return [dict(row) for row in rows]
-
         finally:
             connection.close()
 
 
 
-    
     def __init__(self, db_path=DEFAULT_DB_PATH):
         self.db_path = Path(db_path)
 
