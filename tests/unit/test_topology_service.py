@@ -57,27 +57,30 @@ def _service(tmp_path, registry=None):
     return service, store
 
 
-def test_empty_database_has_only_missing_evidence(tmp_path):
+def test_empty_database_has_online_application_and_missing_sources(tmp_path):
     service, _ = _service(tmp_path)
 
     status = service.gateway_status()
     topology = service.network_topology()
 
+    assert status.application.state == TopologyState.ONLINE
     assert {
-        status.application.state,
         status.windows_host.state,
         status.hotspot.state,
         status.linux_lab.state,
     } == {TopologyState.MISSING}
-    assert {node.state for node in topology.nodes} == {TopologyState.MISSING}
+    assert topology.nodes[0].state == TopologyState.ONLINE
+    assert {node.state for node in topology.nodes[1:]} == {
+        TopologyState.MISSING
+    }
     assert topology.links == []
 
 
 @pytest.mark.parametrize(
     ("age", "expected"),
     [
-        (timedelta(seconds=299), TopologyState.UNKNOWN),
-        (timedelta(seconds=300), TopologyState.UNKNOWN),
+        (timedelta(seconds=299), TopologyState.ONLINE),
+        (timedelta(seconds=300), TopologyState.ONLINE),
         (timedelta(seconds=301), TopologyState.STALE),
     ],
 )
@@ -90,6 +93,16 @@ def test_source_freshness_uses_shared_threshold(tmp_path, age, expected):
     result = service.gateway_status().windows_host
 
     assert result.state == expected
+
+
+def test_fresh_unknown_quality_remains_unknown(tmp_path):
+    service, store = _service(tmp_path)
+    store.save_observation(_observation(quality="unknown"))
+
+    result = service.gateway_status().windows_host
+
+    assert result.state == TopologyState.UNKNOWN
+    assert result.data_quality == "unknown"
 
 
 def test_explicitly_offline_registry_client_is_offline(tmp_path):
@@ -155,8 +168,46 @@ def test_source_failure_isolated_from_other_sources(
     status = service.gateway_status()
 
     assert status.windows_host.state == TopologyState.UNAVAILABLE
-    assert status.hotspot.state == TopologyState.UNKNOWN
+    assert status.hotspot.state == TopologyState.ONLINE
     assert status.linux_lab.state == TopologyState.MISSING
+
+
+def test_linux_lab_failure_is_unavailable_without_affecting_other_sources(
+    monkeypatch, tmp_path
+):
+    service, store = _service(tmp_path)
+    store.register_client(
+        "client-0123456789abcdef",
+        "Client 01",
+        environment="simulated_lab",
+        simulated_lab_slot=1,
+    )
+    store.save_observation(
+        _observation(
+            "linux_namespace_lab",
+            "client",
+            client_id="client-0123456789abcdef",
+        )
+    )
+    original = topology_service_module.build_current_observations
+
+    def fail_linux_gateway(*args, **kwargs):
+        if kwargs.get("source") == "linux_gateway":
+            raise RuntimeError("linux aggregate query failed")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(
+        topology_service_module,
+        "build_current_observations",
+        fail_linux_gateway,
+    )
+
+    status = service.gateway_status()
+
+    assert status.linux_lab.state == TopologyState.UNAVAILABLE
+    assert status.application.state == TopologyState.ONLINE
+    assert status.windows_host.state == TopologyState.MISSING
+    assert status.hotspot.state == TopologyState.MISSING
 
 
 def test_registry_failure_isolated_and_live_probe_is_never_called(
@@ -179,7 +230,7 @@ def test_registry_failure_isolated_and_live_probe_is_never_called(
 
     states = {item.source: item.state for item in topology.sources}
     assert states[TopologySource.ANONYMOUS_REGISTRY.value] == "unavailable"
-    assert states[TopologySource.WINDOWS_HOST.value] == "unknown"
+    assert states[TopologySource.WINDOWS_HOST.value] == "online"
     assert "private detail" not in str(topology.model_dump())
 
 

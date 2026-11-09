@@ -19,6 +19,7 @@ from backend.app.models.schemas import (
     ValueQuality,
 )
 from backend.app.models.topology_schemas import (
+    GatewayOverallStatus,
     GatewayStatusResponse,
     SourceStatus,
     TopologyEdgeType,
@@ -39,6 +40,7 @@ from backend.app.services.lab_accounting_service import lab_accounting_service
 from backend.app.services.observation_query_service import (
     build_current_observations,
 )
+from backend.app.services.health_service import build_observation_health
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -96,60 +98,75 @@ class TopologyService:
 
     def gateway_status(self) -> GatewayStatusResponse:
         now = self._now()
+        application = self._application_status()
         host, host_failed = self._load_source(
             ObservationSource.WINDOWS_HOST,
             ObservationScope.AGGREGATE_GATEWAY,
-            now,
         )
         hotspot, hotspot_failed = self._load_source(
             ObservationSource.WINDOWS_HOTSPOT,
             ObservationScope.AGGREGATE_HOTSPOT,
-            now,
         )
         gateway, gateway_failed = self._load_source(
             ObservationSource.LINUX_GATEWAY,
             ObservationScope.AGGREGATE_GATEWAY,
-            now,
         )
         lab, lab_failed = self._load_source(
             ObservationSource.LINUX_NAMESPACE_LAB,
             ObservationScope.CLIENT,
-            now,
         )
+
+        windows_host = self._source_status(
+            host, failed=host_failed, now=now
+        )
+        hotspot_status = self._source_status(
+            hotspot, failed=hotspot_failed, now=now
+        )
+        linux_lab_status = self._combined_status(
+            (gateway, lab),
+            failed=(gateway_failed, lab_failed),
+            now=now,
+        )
+        statuses = (
+            application,
+            windows_host,
+            hotspot_status,
+            linux_lab_status,
+        )
+        if any(item.state == TopologyState.UNAVAILABLE for item in statuses):
+            overall = GatewayOverallStatus.UNAVAILABLE
+        elif all(item.state == TopologyState.ONLINE for item in statuses):
+            overall = GatewayOverallStatus.HEALTHY
+        else:
+            overall = GatewayOverallStatus.DEGRADED
 
         return GatewayStatusResponse(
             observed_at=now,
-            application=self._missing_status(),
-            windows_host=self._source_status(host, failed=host_failed, now=now),
-            hotspot=self._source_status(hotspot, failed=hotspot_failed, now=now),
-            linux_lab=self._combined_status(
-                (gateway, lab),
-                failed=(gateway_failed, lab_failed),
-                now=now,
-            ),
+            status=overall,
+            application=application,
+            windows_host=windows_host,
+            hotspot=hotspot_status,
+            linux_lab=linux_lab_status,
         )
 
     def network_topology(self) -> TopologyResponse:
         now = self._now()
+        application_status = self._application_status()
         host, host_failed = self._load_source(
             ObservationSource.WINDOWS_HOST,
             ObservationScope.AGGREGATE_GATEWAY,
-            now,
         )
         hotspot, hotspot_failed = self._load_source(
             ObservationSource.WINDOWS_HOTSPOT,
             ObservationScope.AGGREGATE_HOTSPOT,
-            now,
         )
         gateway, gateway_failed = self._load_source(
             ObservationSource.LINUX_GATEWAY,
             ObservationScope.AGGREGATE_GATEWAY,
-            now,
         )
         lab, lab_failed = self._load_source(
             ObservationSource.LINUX_NAMESPACE_LAB,
             ObservationScope.CLIENT,
-            now,
         )
         clients, registry_failed = self._load_registry(now)
 
@@ -180,7 +197,7 @@ class TopologyService:
                 kind=TopologyNodeKind.APPLICATION,
                 label="Experience Budget application",
                 source=TopologySource.APPLICATION,
-                status=self._missing_status(),
+                status=application_status,
             ),
             self._node(
                 node_id="windows-host",
@@ -266,7 +283,7 @@ class TopologyService:
         sources = [
             self._topology_source_status(
                 TopologySource.APPLICATION,
-                self._missing_status(),
+                application_status,
             ),
             self._topology_source_status(
                 TopologySource.WINDOWS_HOST, host_status
@@ -301,14 +318,12 @@ class TopologyService:
         self,
         source: ObservationSource,
         scope: ObservationScope,
-        now: datetime,
     ) -> tuple[_ObservationResult, bool]:
         try:
             response = build_current_observations(
                 self._db_path,
                 source=source.value,
                 scope=scope.value,
-                now=now,
             )
         except Exception:
             _LOGGER.exception(
@@ -362,6 +377,12 @@ class TopologyService:
         failed: Sequence[bool],
         now: datetime,
     ) -> SourceStatus:
+        if any(failed):
+            return SourceStatus(
+                state=TopologyState.UNAVAILABLE,
+                last_observed_at=None,
+                data_quality=ValueQuality.UNAVAILABLE,
+            )
         observations = [
             item
             for observation_set in observation_sets
@@ -374,12 +395,6 @@ class TopologyService:
                 key=lambda item: item.observation.metadata.observed_at,
             ).observation
             return TopologyService._observation_status(latest, now)
-        if any(failed):
-            return SourceStatus(
-                state=TopologyState.UNAVAILABLE,
-                last_observed_at=None,
-                data_quality=ValueQuality.UNAVAILABLE,
-            )
         return TopologyService._missing_status()
 
     @staticmethod
@@ -395,6 +410,8 @@ class TopologyService:
             seconds=STALE_OBSERVATION_AFTER_SECONDS
         ):
             state = TopologyState.STALE
+        elif quality in (ValueQuality.MEASURED, ValueQuality.DERIVED):
+            state = TopologyState.ONLINE
         else:
             state = TopologyState.UNKNOWN
         return SourceStatus(
@@ -465,20 +482,48 @@ class TopologyService:
                 data_quality=ValueQuality.UNAVAILABLE,
             )
         if item is not None:
-            return TopologyService._observation_status(
-                item.observation, now
+            status = TopologyService._observation_status(item.observation, now)
+            if (
+                client is not None
+                and client.status == ClientStatus.ONLINE.value
+                and status.state == TopologyState.ONLINE
+            ):
+                return status
+            if status.state == TopologyState.ONLINE:
+                return SourceStatus(
+                    state=TopologyState.UNKNOWN,
+                    last_observed_at=status.last_observed_at,
+                    data_quality=status.data_quality,
+                )
+            return status
+        return TopologyService._missing_status()
+
+    def _application_status(self) -> SourceStatus:
+        try:
+            health = build_observation_health(self._db_path)
+        except Exception:
+            _LOGGER.exception("topology application health unavailable")
+            return SourceStatus(
+                state=TopologyState.UNAVAILABLE,
+                last_observed_at=None,
+                data_quality=ValueQuality.UNAVAILABLE,
             )
-        if client is None or client.last_seen_at is None:
-            return TopologyService._missing_status()
-        age = now - client.last_seen_at
+
+        component = health.components.application
+        component_status = component.status
+        if component_status == "healthy":
+            state = TopologyState.ONLINE
+            quality = ValueQuality.DERIVED
+        elif component_status == "unavailable":
+            state = TopologyState.UNAVAILABLE
+            quality = ValueQuality.UNAVAILABLE
+        else:
+            state = TopologyState.UNKNOWN
+            quality = ValueQuality.UNKNOWN
         return SourceStatus(
-            state=(
-                TopologyState.STALE
-                if age > timedelta(seconds=STALE_OBSERVATION_AFTER_SECONDS)
-                else TopologyState.UNKNOWN
-            ),
-            last_observed_at=client.last_seen_at,
-            data_quality=ValueQuality.UNKNOWN,
+            state=state,
+            last_observed_at=health.observed_at,
+            data_quality=quality,
         )
 
     @staticmethod

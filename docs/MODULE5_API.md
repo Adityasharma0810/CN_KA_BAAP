@@ -57,3 +57,16 @@ The current endpoint queries canonical storage. It does not start a new Windows 
 The response models use `extra="forbid"` and shared schema validation. Responses contain no IP addresses, MAC addresses, hostnames, device names, URLs, payloads, credentials, temporary address associations, namespace names or private interface names. Aggregate hotspot counters are never assigned to individual clients.
 
 Storage/query failures are converted to a safe `503 database_unavailable` response. Raw exceptions and filesystem details are not returned.
+
+## Feature 5 — Gateway status and network topology
+
+Feature 5 adds two read-only, typed endpoints:
+
+- `GET /api/v1/gateway/status` reports the application health-service component, Windows host, Windows hotspot, and Linux lab separately. Each has a strict state, `last_observed_at`, and `data_quality`; the overall `status` is `healthy` only when all four are online, `unavailable` if any is unavailable, and `degraded` otherwise.
+- `GET /api/v1/network/topology` returns the application, Windows host aggregate, hotspot aggregate, and Linux lab nodes plus only anonymous lab-client membership supported by the registry and canonical client observations. The hotspot and Linux lab are independent and may coexist.
+
+Both endpoints use stored observation data and the shared anonymous registry; they do not call collectors or probe the network. The shared `STALE_OBSERVATION_AFTER_SECONDS` threshold is 300 seconds, with exactly 300 seconds fresh. `online` means recently measured with `measured` or `derived` quality; it does not assert connectivity. A lab client is online only with both a fresh measured/derived client observation and an `online` registry status. Application state comes from the `application` component in `build_observation_health()`.
+
+Topology links use the strict `observed`, `derived`, `configured`, or `unknown` enum. Current data supports only lab-to-anonymous-client measurement or registry-membership edges. It does not support router nodes, physical links, or per-client attribution for Windows aggregates. Edge validation rejects duplicate nodes/edges, dangling endpoints, and self-loops; failures return a generic `503 topology_unavailable`.
+
+Response schemas forbid extra fields and exclude addresses, hostnames, namespaces, private interface names, paths, and raw errors. See [MODULE5_TOPOLOGY.md](./MODULE5_TOPOLOGY.md) for field examples, full state and edge rules, privacy guarantees, and evidence limitations.

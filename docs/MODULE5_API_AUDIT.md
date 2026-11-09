@@ -1,8 +1,9 @@
 # Module 5 API Audit
 
 **Audit date:** 2026-11-09
-**Feature 3 status:** Implemented and targeted-tested; final regression verification pending.
-**Feature 4 status:** Implemented and targeted-tested; final regression verification pending.
+**Feature 3 status:** Implemented; included in the full-suite verification (304 passed, 0 failed).
+**Feature 4 status:** Implemented; included in the full-suite verification (304 passed, 0 failed).
+**Feature 5 status:** Implemented; included in the full-suite verification (304 passed, 0 failed).
 
 ## Current-observation source audit
 
@@ -42,4 +43,32 @@ Feature 4 reuses `MetricsStore.query_history`, `get_aggregate_history`, `get_cli
 
 ## Verification status
 
-Feature 3 targeted tests cover aggregate sources, simulated clients, missing/unavailable data, source/scope separation, client isolation, filter validation, staleness boundaries, null versus zero semantics, UTC preservation, and privacy. Feature 4 acceptance tests cover aggregate defaults, inclusive ranges, client isolation, pagination metadata, timestamp/value/stale preservation, unknown and malformed IDs, invalid ranges, bounded limits, injection-like filters, missing databases, and no request-time collection. Full regression verification remains required before committing the feature.
+Feature 3 tests cover aggregate sources, simulated clients, missing/unavailable data, source/scope separation, client isolation, filter validation, staleness boundaries, null versus zero semantics, UTC preservation, and privacy. Feature 4 acceptance tests cover aggregate defaults, inclusive ranges, client isolation, pagination metadata, timestamp/value/stale preservation, unknown and malformed IDs, invalid ranges, bounded limits, injection-like filters, missing databases, and no request-time collection. The full suite completed with **304 passed, 0 failed** after Feature 5 implementation.
+
+## Feature 5 topology and gateway status audit
+
+`GET /api/v1/gateway/status` reports the application component from
+`build_observation_health()` and stored canonical observations for Windows
+host, hotspot, and Linux lab independently. `GET /api/v1/network/topology`
+builds the same source statuses and combines them with public anonymous
+registry records. Neither route calls `lab_accounting_service.collect()` or
+starts a probe. Each observation source and the registry has isolated failure
+handling; exceptions are logged but not serialized.
+
+Source state is derived from the latest stored timestamp, quality, and the
+shared 300-second threshold. Fresh measured/derived observations are `online`
+in the recent-measurement sense only; unknown quality stays `unknown`, stale
+data is `stale`, unavailable quality or failed sources are `unavailable`, and
+missing evidence is `missing`. Anonymous clients additionally require the
+registry's `online` status to be `online`; registry-offline remains `offline`.
+Application state uses the application health component, and a health-service
+exception affects only that state.
+
+Only lab-client measurement or registry membership can justify lab-to-client
+edges. Strict schemas forbid extra fields and non-enum edge types, while the
+service validator rejects duplicate nodes or edges, dangling endpoints, and
+self-loops. No router, physical links, or host/hotspot per-client attribution
+are fabricated. The registry does not distinguish an explicit offline mark
+from timeout-derived offline status, and no aggregate source provides an
+offline signal. See `MODULE5_TOPOLOGY.md` and `MODULE5_TOPOLOGY_AUDIT.md` for
+the detailed contracts and evidence limits.

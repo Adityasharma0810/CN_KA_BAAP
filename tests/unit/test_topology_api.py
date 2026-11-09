@@ -66,7 +66,9 @@ def _configure(monkeypatch, tmp_path):
     return store, registry
 
 
-def test_empty_database_reports_all_nodes_missing(monkeypatch, tmp_path):
+def test_empty_database_reports_application_online_and_sources_missing(
+    monkeypatch, tmp_path
+):
     _configure(monkeypatch, tmp_path)
 
     status = client.get("/api/v1/gateway/status")
@@ -76,6 +78,7 @@ def test_empty_database_reports_all_nodes_missing(monkeypatch, tmp_path):
     status_body = status.json()
     assert set(status_body) == {
         "observed_at",
+        "status",
         "application",
         "windows_host",
         "hotspot",
@@ -84,18 +87,24 @@ def test_empty_database_reports_all_nodes_missing(monkeypatch, tmp_path):
     assert {
         name: item["state"]
         for name, item in status_body.items()
-        if name != "observed_at"
+        if name not in ("observed_at", "status")
     } == {
-        "application": "missing",
+        "application": "online",
         "windows_host": "missing",
         "hotspot": "missing",
         "linux_lab": "missing",
     }
+    assert status_body["status"] == "degraded"
     assert all(
-        item["last_observed_at"] is None
-        and item["data_quality"] == "unknown"
+        item["last_observed_at"] is not None
+        and item["data_quality"] == "derived"
         for name, item in status_body.items()
-        if name != "observed_at"
+        if name == "application"
+    )
+    assert all(
+        item["last_observed_at"] is None and item["data_quality"] == "unknown"
+        for name, item in status_body.items()
+        if name in ("windows_host", "hotspot", "linux_lab")
     )
 
     assert topology.status_code == 200
@@ -106,15 +115,20 @@ def test_empty_database_reports_all_nodes_missing(monkeypatch, tmp_path):
         "hotspot-aggregate",
         "linux-lab",
     ]
-    assert all(node["state"] == "missing" for node in topology_body["nodes"])
+    assert [node["state"] for node in topology_body["nodes"]] == [
+        "online",
+        "missing",
+        "missing",
+        "missing",
+    ]
     assert topology_body["links"] == []
 
 
 @pytest.mark.parametrize(
     ("age", "expected_state"),
     [
-        (timedelta(seconds=299), "unknown"),
-        (timedelta(seconds=300), "unknown"),
+        (timedelta(seconds=299), "online"),
+        (timedelta(seconds=300), "online"),
         (timedelta(seconds=301), "stale"),
     ],
 )
@@ -139,6 +153,59 @@ def test_gateway_status_freshness_boundary(
     assert host["last_observed_at"] == (
         NOW - age
     ).isoformat().replace("+00:00", "Z")
+
+
+def test_fresh_unknown_quality_remains_unknown(monkeypatch, tmp_path):
+    store, _ = _configure(monkeypatch, tmp_path)
+    store.save_observation(
+        _observation(
+            "windows_host",
+            "aggregate_gateway",
+            quality="unknown",
+        )
+    )
+
+    response = client.get("/api/v1/gateway/status")
+
+    assert response.status_code == 200
+    assert response.json()["windows_host"]["state"] == "unknown"
+    assert response.json()["windows_host"]["data_quality"] == "unknown"
+
+
+def test_application_health_failure_is_isolated(monkeypatch, tmp_path):
+    _configure(monkeypatch, tmp_path)
+
+    def fail_health(db_path=None):
+        raise RuntimeError("application health private detail")
+
+    monkeypatch.setattr(
+        topology_service_module,
+        "build_observation_health",
+        fail_health,
+    )
+    response = client.get("/api/v1/gateway/status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["application"]["state"] == "unavailable"
+    assert body["windows_host"]["state"] == "missing"
+    assert body["hotspot"]["state"] == "missing"
+    assert body["linux_lab"]["state"] == "missing"
+    assert body["status"] == "unavailable"
+    assert "private detail" not in response.text
+
+    topology_response = client.get("/api/v1/network/topology")
+    assert topology_response.status_code == 200
+    topology_body = topology_response.json()
+    application_node = next(
+        node for node in topology_body["nodes"] if node["kind"] == "application"
+    )
+    assert application_node["state"] == "unavailable"
+    assert all(
+        node["state"] == "missing"
+        for node in topology_body["nodes"]
+        if node["kind"] != "application"
+    )
 
 
 def test_client_offline_state_comes_from_explicit_registry_status(
@@ -177,7 +244,11 @@ def test_source_failure_is_isolated_and_not_exposed(
 ):
     store, _ = _configure(monkeypatch, tmp_path)
     store.save_observation(
-        _observation("windows_hotspot", "aggregate_hotspot")
+        _observation(
+            "windows_hotspot",
+            "aggregate_hotspot",
+            quality="derived",
+        )
     )
     original = topology_service_module.build_current_observations
 
@@ -198,7 +269,7 @@ def test_source_failure_is_isolated_and_not_exposed(
     body = response.json()
     assert body["windows_host"]["state"] == "unavailable"
     assert body["windows_host"]["data_quality"] == "unavailable"
-    assert body["hotspot"]["state"] == "unknown"
+    assert body["hotspot"]["state"] == "online"
     assert body["linux_lab"]["state"] == "missing"
     assert "private source path" not in response.text
 
@@ -218,7 +289,11 @@ def test_hotspot_and_lab_coexist_without_aggregate_client_attribution(
         _observation("windows_host", "aggregate_gateway")
     )
     store.save_observation(
-        _observation("windows_hotspot", "aggregate_hotspot")
+        _observation(
+            "windows_hotspot",
+            "aggregate_hotspot",
+            quality="derived",
+        )
     )
     client_observation = _observation(
         "linux_namespace_lab",
@@ -245,6 +320,22 @@ def test_hotspot_and_lab_coexist_without_aggregate_client_attribution(
     assert len(client_nodes) == 1
     assert client_nodes[0]["label"] == "Client 01"
     assert client_nodes[0]["client_id"] == registered.client_id
+    assert client_nodes[0]["state"] == "online"
+    assert next(node for node in nodes if node["kind"] == "windows_host")[
+        "state"
+    ] == "online"
+    assert next(node for node in nodes if node["kind"] == "hotspot")[
+        "state"
+    ] == "online"
+    assert next(node for node in nodes if node["kind"] == "linux_lab")[
+        "state"
+    ] == "online"
+    assert next(node for node in nodes if node["kind"] == "hotspot")[
+        "data_quality"
+    ] == "derived"
+    status_response = client.get("/api/v1/gateway/status")
+    assert status_response.status_code == 200
+    assert status_response.json()["status"] == "healthy"
     assert body["links"] == [
         {
             "source": "linux-lab",
@@ -276,7 +367,7 @@ def test_registry_failure_does_not_change_other_sources(
     body = response.json()
     source_states = {source["source"]: source["state"] for source in body["sources"]}
     assert source_states["anonymous_registry"] == "unavailable"
-    assert source_states["windows_host"] == "unknown"
+    assert source_states["windows_host"] == "online"
     assert "registry private detail" not in response.text
 
 

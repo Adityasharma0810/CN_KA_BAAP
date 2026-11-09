@@ -14,6 +14,13 @@ class TopologyState(str, Enum):
     OFFLINE = "offline"
     UNKNOWN = "unknown"
     UNAVAILABLE = "unavailable"
+    ONLINE = "online"
+
+
+class GatewayOverallStatus(str, Enum):
+    HEALTHY = "healthy"
+    DEGRADED = "degraded"
+    UNAVAILABLE = "unavailable"
 
 
 class TopologySource(str, Enum):
@@ -49,7 +56,12 @@ def _require_utc(value: datetime) -> datetime:
 class SourceStatus(BaseModel):
     model_config = ConfigDict(extra="forbid", use_enum_values=True)
 
-    state: TopologyState
+    state: TopologyState = Field(
+        description=(
+            "'online' means recently measured with measured or derived "
+            "quality; it does not assert network connectivity."
+        )
+    )
     last_observed_at: datetime | None = None
     data_quality: ValueQuality
 
@@ -65,6 +77,7 @@ class GatewayStatusResponse(BaseModel):
     model_config = ConfigDict(extra="forbid", use_enum_values=True)
 
     observed_at: datetime
+    status: GatewayOverallStatus
     application: SourceStatus
     windows_host: SourceStatus
     hotspot: SourceStatus
@@ -82,7 +95,12 @@ class TopologyNode(BaseModel):
     node_id: str = Field(min_length=1, max_length=64, pattern=r"^[a-z0-9_-]+$")
     kind: TopologyNodeKind
     label: str = Field(min_length=1, max_length=64)
-    state: TopologyState
+    state: TopologyState = Field(
+        description=(
+            "'online' means recently measured with measured or derived "
+            "quality; it does not assert network connectivity."
+        )
+    )
     source: TopologySource
     data_quality: ValueQuality
     last_observed_at: datetime | None = None
