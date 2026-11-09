@@ -7,12 +7,14 @@ counting both ends of a veth pair.
 
 from __future__ import annotations
 
+import math
+import os
 import re
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Mapping
 
 from backend.app.models.schemas import (
     ObservationEnvironment,
@@ -26,7 +28,11 @@ from backend.app.services.client_registry import AnonymousClientRegistry
 
 _INTERFACE_PATTERN = re.compile(r"^veth-c([1-9][0-9]*)-br$")
 _NAMESPACE_PATTERN = re.compile(r"^client([1-9][0-9]*)$")
+_DISPLAY_LABEL_PATTERN = re.compile(r"^Client ([0-9]{2,})$")
 _MIN_ELAPSED_SECONDS = 0.001
+DEFAULT_CLIENT_COUNT = 3
+MAX_LAB_CLIENTS = 99
+MAX_INTERFACE_NAME_LENGTH = 15
 
 
 @dataclass(frozen=True)
@@ -43,12 +49,16 @@ class LabClientConfig:
             raise ValueError("client_number must be an integer")
         if self.client_number < 1:
             raise ValueError("client_number must be positive")
-        if not self.client_id:
+        if self.client_number > MAX_LAB_CLIENTS:
+            raise ValueError(f"client_number must not exceed {MAX_LAB_CLIENTS}")
+        if not isinstance(self.client_id, str) or not self.client_id:
             raise ValueError("client_id is required")
         namespace_match = _NAMESPACE_PATTERN.fullmatch(self.namespace_name)
         interface_match = _INTERFACE_PATTERN.fullmatch(self.gateway_interface)
         if namespace_match is None or interface_match is None:
             raise ValueError("invalid lab namespace or gateway interface")
+        if len(self.gateway_interface) > MAX_INTERFACE_NAME_LENGTH:
+            raise ValueError("gateway interface name is too long")
         if int(namespace_match.group(1)) != self.client_number:
             raise ValueError("namespace does not match client_number")
         if int(interface_match.group(1)) != self.client_number:
@@ -75,6 +85,8 @@ class ClientCounterSnapshot:
             value = getattr(self, field)
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise ValueError(f"{field} must be a non-negative integer")
+        if not isinstance(self.observed_at, datetime):
+            raise ValueError("observed_at must be a datetime")
         if self.observed_at.tzinfo is None or self.observed_at.utcoffset() is None:
             raise ValueError("observed_at must include a timezone")
         object.__setattr__(self, "observed_at", self.observed_at.astimezone(timezone.utc))
@@ -102,7 +114,10 @@ def calculate_client_rates(
 
     if not isinstance(elapsed_seconds, (int, float)) or isinstance(elapsed_seconds, bool):
         raise ValueError("elapsed_seconds must be numeric")
-    if elapsed_seconds < _MIN_ELAPSED_SECONDS:
+    elapsed = float(elapsed_seconds)
+    if not math.isfinite(elapsed):
+        raise ValueError("elapsed_seconds must be finite")
+    if elapsed < _MIN_ELAPSED_SECONDS:
         raise ValueError("elapsed_seconds is too small")
     if previous is None:
         return RateResult(None, None, False, "no_baseline")
@@ -114,7 +129,7 @@ def calculate_client_rates(
     if any(delta < 0 for delta in deltas.values()):
         return RateResult(None, None, False, "counter_reset")
 
-    factor = 8 / elapsed_seconds / 1_000_000
+    factor = 8 / elapsed / 1_000_000
     return RateResult(
         download_mbps=round(deltas["download"] * factor, 6),
         upload_mbps=round(deltas["upload"] * factor, 6),
@@ -184,11 +199,16 @@ class PerClientAccountingCollector:
                 previous = self._previous.get(client.client_id)
                 previous_time = self._previous_time.get(client.client_id)
                 elapsed = current_time - previous_time if previous_time is not None else None
-                rates = (
-                    calculate_client_rates(previous, current, elapsed)
-                    if elapsed is not None
-                    else RateResult(None, None, False, "no_baseline")
-                )
+                if previous is None or elapsed is None:
+                    rates = RateResult(None, None, False, "no_baseline")
+                else:
+                    try:
+                        rates = calculate_client_rates(previous, current, elapsed)
+                    except ValueError:
+                        # A monotonic clock that stalls or moves backwards cannot
+                        # produce a safe interval. Rebase instead of reusing an
+                        # old baseline on the next sample.
+                        rates = RateResult(None, None, False, "invalid_elapsed")
                 self._previous[client.client_id] = current
                 self._previous_time[client.client_id] = current_time
                 quality = ValueQuality.MEASURED if rates.valid else ValueQuality.UNAVAILABLE
@@ -288,31 +308,73 @@ class PerClientAccountingCollector:
         return value.astimezone(timezone.utc)
 
 
+def _validate_client_numbers(client_numbers: Iterable[int]) -> tuple[int, ...]:
+    try:
+        numbers = tuple(client_numbers)
+    except TypeError as error:
+        raise ValueError("client_numbers must be an iterable of integers") from error
+    if not numbers:
+        raise ValueError("client_numbers must contain positive integers")
+    for number in numbers:
+        if isinstance(number, bool) or not isinstance(number, int) or number < 1:
+            raise ValueError("client_numbers must contain positive integers")
+        if number > MAX_LAB_CLIENTS:
+            raise ValueError(f"client_numbers must not exceed {MAX_LAB_CLIENTS}")
+    if len(set(numbers)) != len(numbers):
+        raise ValueError("duplicate client numbers")
+    return numbers
+
+
+def _label_number(display_label: str) -> int:
+    match = _DISPLAY_LABEL_PATTERN.fullmatch(display_label)
+    if match is None:
+        raise ValueError("invalid anonymous client display label")
+    return int(match.group(1))
+
+
 def build_lab_inventory(
     registry: AnonymousClientRegistry,
     *,
-    client_numbers: Iterable[int] = (1, 2, 3),
+    client_numbers: Iterable[int] = tuple(range(1, DEFAULT_CLIENT_COUNT + 1)),
 ) -> tuple[LabClientConfig, ...]:
-    """Build explicit simulated-client mappings for the existing lab topology."""
+    """Build explicit simulated-client mappings for the existing lab topology.
 
-    numbers = tuple(client_numbers)
-    if not numbers or any(isinstance(number, bool) or number < 1 for number in numbers):
-        raise ValueError("client_numbers must contain positive integers")
-    if len(set(numbers)) != len(numbers):
-        raise ValueError("duplicate client numbers")
+    The registry label number is the lab client number. Registering up to the
+    largest requested number keeps existing labels stable when the inventory is
+    grown from three to five clients.
+    """
 
+    numbers = _validate_client_numbers(client_numbers)
+    required = max(numbers)
     registered = registry.list_clients()
-    while len(registered) < len(numbers):
+    while len(registered) < required:
         registry.register()
         registered = registry.list_clients()
-    # Labels are sorted; registration order is preserved by labels.
-    registered_by_label = sorted(registered, key=lambda item: item.display_label)
+    # Sort numerically rather than lexicographically so labels above 99 do not
+    # reorder the inventory.
+    registered_by_number = sorted(registered, key=lambda item: _label_number(item.display_label))
     return tuple(
         LabClientConfig(
             client_number=number,
-            client_id=registered_by_label[index].client_id,
+            client_id=registered_by_number[number - 1].client_id,
             namespace_name=f"client{number}",
             gateway_interface=f"veth-c{number}-br",
         )
-        for index, number in enumerate(numbers)
+        for number in numbers
     )
+
+
+def client_numbers_from_environment(
+    environ: Mapping[str, str] | None = None,
+) -> tuple[int, ...]:
+    """Read ``EB_LAB_CLIENTS`` as a client count, defaulting to three."""
+
+    values = os.environ if environ is None else environ
+    raw = values.get("EB_LAB_CLIENTS", "").strip()
+    if not raw:
+        count = DEFAULT_CLIENT_COUNT
+    else:
+        if re.fullmatch(r"[1-9][0-9]*", raw) is None:
+            raise ValueError("EB_LAB_CLIENTS must be a positive integer")
+        count = int(raw)
+    return _validate_client_numbers(range(1, count + 1))

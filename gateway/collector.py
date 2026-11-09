@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """Reads per-client traffic counters from the lab bridge ports."""
 import time
-from pathlib import Path
 
 from backend.app.services.client_registry import AnonymousClientRegistry
-from gateway.accounting import SysfsCounterReader, build_lab_inventory
+from gateway.accounting import (
+    SysfsCounterReader,
+    build_lab_inventory,
+    client_numbers_from_environment,
+)
 
-CLIENTS = [1, 2, 3]
+CLIENTS = list(client_numbers_from_environment())
 INTERVAL = 1.0
 
 # Runtime-only registry. IDs change on process restart and contain no device data.
@@ -33,7 +36,7 @@ def read_bytes(client: int) -> tuple[int, int]:
 def main() -> None:
     try:
         prev = {c: read_bytes(c) for c in CLIENTS}
-    except FileNotFoundError:
+    except (FileNotFoundError, RuntimeError, OSError):
         print("Lab not found. Run: sudo bash scripts/setup_gateway.sh")
         return
 
