@@ -41,6 +41,12 @@ _DEFAULT_AGGREGATE_SOURCES = (
 _QUERY_ERRORS = (StorageError, sqlite3.Error, OSError, ValueError)
 
 
+def utc_now() -> datetime:
+    """Return the injectable UTC clock used for freshness decisions."""
+
+    return datetime.now(timezone.utc)
+
+
 class ObservationQueryError(RuntimeError):
     """Base class for safe current-observation failures."""
 
@@ -116,7 +122,10 @@ def _query_rows(
             limit=1,
         )
 
-    if scope == ObservationScope.CLIENT.value:
+    if scope == ObservationScope.CLIENT.value or (
+        source == ObservationSource.LINUX_NAMESPACE_LAB.value
+        and scope is None
+    ):
         rows = []
         for client in store.list_clients():
             rows.extend(
@@ -157,7 +166,7 @@ def build_current_observations(
 ) -> CurrentObservationsResponse:
     """Return the newest observation per source or per anonymous client."""
 
-    now = datetime.now(timezone.utc)
+    now = utc_now()
     source_value = _value(source)
     scope_value = _value(scope)
     environment_value = _value(environment)

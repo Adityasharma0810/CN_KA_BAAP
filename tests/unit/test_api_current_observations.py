@@ -5,7 +5,10 @@ from __future__ import annotations
 import re
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from fastapi.testclient import TestClient
+
+from backend.app.config import STALE_OBSERVATION_AFTER_SECONDS
 
 from backend.app.main import app
 from backend.app.models.schemas import TelemetryObservation
@@ -129,6 +132,30 @@ def test_current_defaults_to_aggregate_sources_only(monkeypatch, tmp_path):
         "environment": None,
         "client_id": None,
     }
+
+
+def test_linux_namespace_source_filter_returns_per_client_rows(monkeypatch, tmp_path):
+    path = _database(tmp_path)
+    store = MetricsStore(path)
+    now = datetime.now(timezone.utc)
+    _register_clients(store)
+    store.save_observation(
+        _observation(
+            "linux_namespace_lab",
+            "client",
+            observed_at=now,
+            environment="simulated_lab",
+            client_id=CLIENT_ONE,
+        )
+    )
+    _use_database(monkeypatch, path)
+
+    response = client.get("/api/v1/observations/current?source=linux_namespace_lab")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["count"] == 1
+    assert body["observations"][0]["observation"]["metadata"]["client_id"] == CLIENT_ONE
 
 
 def test_current_source_filter_returns_only_that_source(monkeypatch, tmp_path):
@@ -337,6 +364,36 @@ def test_current_missing_database_returns_empty_without_creating_it(
     assert response.status_code == 200
     assert response.json()["count"] == 0
     assert not path.exists()
+
+
+@pytest.mark.parametrize(
+    ("age", "stale"),
+    [
+        (timedelta(seconds=STALE_OBSERVATION_AFTER_SECONDS - 1), False),
+        (timedelta(seconds=STALE_OBSERVATION_AFTER_SECONDS), False),
+        (timedelta(seconds=STALE_OBSERVATION_AFTER_SECONDS + 1), True),
+    ],
+)
+def test_current_staleness_boundaries(monkeypatch, tmp_path, age, stale):
+    path = _database(tmp_path)
+    store = MetricsStore(path)
+    now = datetime(2026, 11, 9, 12, 0, tzinfo=timezone.utc)
+    observed_at = now - age
+    store.save_observation(
+        _observation("windows_host", "aggregate_gateway", observed_at=observed_at)
+    )
+    _use_database(monkeypatch, path)
+    monkeypatch.setattr(
+        "backend.app.services.observation_query_service.utc_now",
+        lambda: now,
+    )
+
+    response = client.get("/api/v1/observations/current?source=windows_host")
+
+    assert response.status_code == 200
+    metadata = response.json()["observations"][0]["observation"]["metadata"]
+    assert metadata["stale"] is stale
+    assert metadata["observed_at"] == observed_at.isoformat().replace("+00:00", "Z")
 
 
 def test_current_marks_old_observation_stale(monkeypatch, tmp_path):

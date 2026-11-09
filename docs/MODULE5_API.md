@@ -1,0 +1,48 @@
+# Module 5 Product API
+
+## Feature 3 — Current observations
+
+`GET /api/v1/observations/current` returns the newest canonical observation for each requested source, without changing the stored observation timestamp.
+
+### Filters
+
+Optional query parameters are validated against the shared observation schema:
+
+- `source`: `windows_host`, `windows_hotspot`, `linux_gateway`, `linux_namespace_lab`, or `unknown`.
+- `scope`: `aggregate_gateway`, `aggregate_hotspot`, or `client`.
+- `environment`: `physical_host` or `simulated_lab`.
+- `client_id`: an opaque `client-...` ID registered in the canonical client store.
+
+`client_id` is restricted to client-scoped observations. `linux_namespace_lab` is client-scoped by definition in this implementation; omitting `scope` for that source returns the newest observation for each registered simulated client. Aggregate sources never return client rows.
+
+A well-formed but unknown client ID returns `404 unknown_client`; malformed enum or client values return `422 invalid_filter` or FastAPI validation errors. A valid filter with no data returns `200` with `count: 0` and an empty `observations` list.
+
+### Response and semantics
+
+The response is a strict `CurrentObservationsResponse` envelope. Each item contains a storage ID and a validated `TelemetryObservation` with:
+
+- original UTC `observed_at`;
+- source, scope, environment, quality and optional anonymous client ID;
+- stale flag and safe collector error code;
+- counters, rates, RTT, packet loss, variation and queue values when present.
+
+Missing values remain `null`. A measured zero remains `0`; it is not converted to missing. No request-time timestamp is substituted for the observation timestamp.
+
+### Freshness
+
+The default freshness threshold is `STALE_OBSERVATION_AFTER_SECONDS = 300` seconds. Current observations are stale when their age is strictly greater than five minutes. At exactly five minutes they remain fresh. Staleness is computed in memory and does not modify the database.
+
+### Sources and availability
+
+- `windows_host`: aggregate host telemetry persisted by the Windows monitoring service.
+- `windows_hotspot`: aggregate Mobile Hotspot telemetry only; it cannot identify physical hotspot devices.
+- `linux_gateway`: aggregate Linux gateway data only when a genuine canonical observation exists.
+- `linux_namespace_lab`: simulated per-client observations with opaque IDs, only when the lab collector has produced them.
+
+The current endpoint queries canonical storage. It does not start a new Windows probe, read Linux sysfs from Windows, or invent a remote Ubuntu connection. Missing or unavailable collectors therefore produce an empty result for that source rather than fabricated measurements. Remote gateway transport is a later feature.
+
+### Privacy boundary
+
+The response models use `extra="forbid"` and shared schema validation. Responses contain no IP addresses, MAC addresses, hostnames, device names, URLs, payloads, credentials, temporary address associations, namespace names or private interface names. Aggregate hotspot counters are never assigned to individual clients.
+
+Storage/query failures are converted to a safe `503 database_unavailable` response. Raw exceptions and filesystem details are not returned.
