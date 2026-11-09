@@ -8,6 +8,34 @@ from backend.app.main import app
 client = TestClient(app)
 
 
+def test_versioned_health_endpoint(monkeypatch):
+    monkeypatch.setattr("backend.app.api.health.database_available", lambda: True)
+    monkeypatch.setattr("backend.app.api.health.windows_collector_available", lambda: True)
+    monkeypatch.setattr("backend.app.api.health.linux_gateway_available", lambda: False)
+    monkeypatch.setattr("backend.app.api.health.registry_available", lambda: True)
+
+    response = client.get("/api/v1/health")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "degraded"
+    assert {item["name"] for item in body["components"]} == {
+        "database", "windows_collector", "linux_gateway", "anonymous_registry"
+    }
+    assert "ip" not in response.text.lower()
+    assert "mac" not in response.text.lower()
+
+
+def test_collector_health_endpoint(monkeypatch):
+    monkeypatch.setattr("backend.app.api.health.windows_collector_available", lambda: True)
+    monkeypatch.setattr("backend.app.api.health.linux_gateway_available", lambda: False)
+
+    response = client.get("/api/v1/health/collectors")
+
+    assert response.status_code == 200
+    assert response.json()["collectors"][1]["status"] == "unavailable"
+
+
 def test_health_endpoint():
     response = client.get("/health")
 
