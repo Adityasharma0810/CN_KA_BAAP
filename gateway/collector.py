@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """Reads per-client traffic counters from the lab bridge ports."""
-import secrets
 import time
 from pathlib import Path
+
+from backend.app.services.client_registry import AnonymousClientRegistry
 
 CLIENTS = [1, 2, 3]
 INTERVAL = 1.0
 
-# Anonymous IDs live in memory only and change on every restart.
-anon_ids = {c: "dev-" + secrets.token_hex(3) for c in CLIENTS}
+# Runtime-only registry. IDs change on process restart and contain no device data.
+registry = AnonymousClientRegistry()
+anon_ids = {c: registry.register().client_id for c in CLIENTS}
 
 
 def read_bytes(client: int) -> tuple[int, int]:
