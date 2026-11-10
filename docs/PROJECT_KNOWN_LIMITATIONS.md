@@ -8,7 +8,7 @@
 1. The Linux gateway is a namespace-based Ubuntu VM lab. It is not a physical household router, Wi-Fi controller, or production WAN appliance.
 2. The product does not discover or persist real household-device identity. Client IDs are opaque and simulated lab slots are not physical devices.
 3. Windows Mobile Hotspot telemetry is aggregate-only. It cannot attribute bytes or QoE to individual hotspot clients.
-4. The complete Windows-to-Ubuntu authenticated observation-agent transport is not yet implemented and evidenced end to end. Existing `EB_GATEWAY_*` configuration is not proof of a working remote integration.
+4. The Windows-to-Ubuntu authenticated, bounded observation transport and ingest worker are implemented and contract-tested. Real VM connectivity, persistence, restart recovery, and end-to-end freshness are not yet evidenced; configuration alone is not proof of remote integration.
 5. No automated Windows↔Ubuntu VM integration suite currently proves timeout, invalid authentication, malformed response, restart, stale response, and recovery behavior.
 6. Linux namespace state, bridge state, NAT state, and traffic-control state are runtime lab state and must be recreated after a VM reboot.
 7. The root-owned helper is a lab deployment artifact. Its sudoers allowance and copied installation must not be reused on a shared or production machine without a security review.
@@ -45,7 +45,7 @@
 
 27. Existing experiment harnesses are Linux scripts with CSV output and manual/automated test support. They are not yet a product-facing experiment registry with signed manifests, statistical analysis service, or full A/B UI.
 28. Existing reports cover two scenarios and five runs per mode under a deliberately simulated bottleneck. They are evidence for that testbed only, not a household generalization.
-29. The frontend production build has previously passed, but lint has known `react-hooks/set-state-in-effect` failures in `App.jsx`; frontend E2E coverage is incomplete.
+29. The frontend has no configured unit-test runner or E2E suite. Lint and a production bundle do not establish direct-route or browser integration behavior; those checks remain incomplete.
 30. Dashboard labels and topology views describe measurement provenance, but a visual label is not independent evidence that a physical router or device was observed.
 31. About/limitations and settings/safety views must continue to distinguish measured, derived, simulated, configured, stale, and unavailable data.
 

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import "./AppShell.css";
 import { StatusBadge, StatusBadges } from "../ui/StatusBadge";
 import { getGatewayStatus, getHealth, getSystemCapabilities } from "../../api/client";
@@ -12,43 +12,41 @@ export function AppShell({ children }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [backendStatus, setBackendStatus] = useState("checking");
   const [gatewayStatus, setGatewayStatus] = useState("unknown");
-  const [environment, setEnvironment] = useState("detecting");
+  const [platform, setPlatform] = useState("checking");
+  const location = useLocation();
 
-  // Check backend connectivity
   useEffect(() => {
-    const checkBackend = async () => {
-      try {
-        await getHealth();
-        setBackendStatus("connected");
-      } catch (error) {
-        setBackendStatus(error?.kind === "http" ? "error" : "disconnected");
-      }
+    let disposed = false;
+    let timer;
+    let controller;
+
+    const refreshStatus = async () => {
+      controller = new AbortController();
+      const { signal } = controller;
+      const results = await Promise.allSettled([
+        getHealth({ signal }),
+        getGatewayStatus({ signal }),
+        getSystemCapabilities({ signal }),
+      ]);
+      if (disposed || signal.aborted) return;
+
+      const [health, gateway, capabilities] = results;
+      setBackendStatus(resolveStatus(health));
+      setGatewayStatus(resolveStatus(gateway, "disconnected"));
+      setPlatform(
+        capabilities.status === "fulfilled"
+          ? capabilities.value.platform || "unknown"
+          : "unavailable",
+      );
+      timer = window.setTimeout(refreshStatus, 15000);
     };
 
-    checkBackend();
-    const interval = setInterval(checkBackend, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Fetch gateway status and environment
-  useEffect(() => {
-    const fetchStatus = async () => {
-      try {
-        const [caps, gateway] = await Promise.all([
-          getSystemCapabilities(),
-          getGatewayStatus(),
-        ]);
-        setEnvironment(caps.data?.environment || caps.environment || "unknown");
-        setGatewayStatus(gateway.data?.status || gateway.status || "unknown");
-      } catch {
-        setGatewayStatus("error");
-        setEnvironment("error");
-      }
+    refreshStatus();
+    return () => {
+      disposed = true;
+      window.clearTimeout(timer);
+      controller?.abort();
     };
-
-    fetchStatus();
-    const interval = setInterval(fetchStatus, 15000);
-    return () => clearInterval(interval);
   }, []);
 
   const navigation = [
@@ -61,6 +59,8 @@ export function AppShell({ children }) {
     switch (status) {
       case "connected":
         return <StatusBadges.Online>Backend</StatusBadges.Online>;
+      case "degraded":
+        return <StatusBadges.Degraded>Backend</StatusBadges.Degraded>;
       case "disconnected":
         return <StatusBadges.Offline>Backend</StatusBadges.Offline>;
       case "error":
@@ -72,12 +72,14 @@ export function AppShell({ children }) {
 
   const getGatewayBadge = (status) => {
     switch (status) {
-      case "healthy":
+      case "connected":
         return <StatusBadges.Live>Gateway</StatusBadges.Live>;
       case "degraded":
         return <StatusBadges.Degraded>Gateway</StatusBadges.Degraded>;
-      case "unavailable":
+      case "disconnected":
         return <StatusBadges.Offline>Gateway</StatusBadges.Offline>;
+      case "error":
+        return <StatusBadges.Failure>Gateway</StatusBadges.Failure>;
       default:
         return <StatusBadges.Unknown>Gateway</StatusBadges.Unknown>;
     }
@@ -137,15 +139,8 @@ export function AppShell({ children }) {
                 <dd>{getGatewayBadge(gatewayStatus)}</dd>
               </div>
               <div className="app-shell__status-row">
-                <dt>Environment</dt>
-                <dd>
-                  <StatusBadge
-                    variant={environment === "simulated_lab" ? "simulated" : environment === "production" ? "live" : "unknown"}
-                    size="sm"
-                  >
-                    {environment.replace("_", " ")}
-                  </StatusBadge>
-                </dd>
+                <dt>Platform</dt>
+                <dd><StatusBadge variant="unknown" size="sm">{platform}</StatusBadge></dd>
               </div>
             </dl>
           </div>
@@ -163,7 +158,7 @@ export function AppShell({ children }) {
         <header className="app-shell__header" role="banner">
           <div className="app-shell__header-left">
             <h1 className="app-shell__page-title">
-              {getPageTitle(window.location.pathname)}
+              {getPageTitle(location.pathname)}
             </h1>
           </div>
           <div className="app-shell__header-right">
@@ -177,11 +172,27 @@ export function AppShell({ children }) {
         </header>
 
         <main className="app-shell__content" role="main">
-          {children || <Outlet />}
+          {children}
         </main>
       </div>
     </div>
   );
+}
+
+function resolveStatus(result, unavailableStatus = "error") {
+  if (result.status === "rejected") {
+    return result.reason?.kind === "http" ? "error" : "disconnected";
+  }
+  switch (result.value?.status) {
+    case "healthy":
+      return "connected";
+    case "degraded":
+      return "degraded";
+    case "unavailable":
+      return unavailableStatus;
+    default:
+      return "unknown";
+  }
 }
 
 function getPageTitle(pathname) {

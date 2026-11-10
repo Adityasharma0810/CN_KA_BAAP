@@ -41,6 +41,18 @@ _FAILURE_CODES = {
     "probe_timeout",
     "probe_failed",
 }
+_SUDO_AUTH_FAILURES = (
+    "a password is required",
+    "interactive authentication required",
+    "no tty present",
+)
+
+
+def _sudo_authentication_required(error: str | None) -> bool:
+    if not isinstance(error, str):
+        return False
+    message = error.lower()
+    return any(indicator in message for indicator in _SUDO_AUTH_FAILURES)
 
 
 def utc_now() -> datetime:
@@ -435,6 +447,9 @@ class LatencyProbeService:
         except Exception:
             _LOGGER.exception("latency probe subprocess failed")
             return _ProbeSample(now, None, None, None, None, "probe_failed")
+
+        if _sudo_authentication_required(completed.stderr):
+            return _ProbeSample(now, None, None, None, None, "helper_missing")
 
         parsed = parse_probe_output(completed.stdout or "")
         if isinstance(parsed, str):

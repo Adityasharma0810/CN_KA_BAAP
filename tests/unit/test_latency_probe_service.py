@@ -36,6 +36,25 @@ def completed(output, returncode=0):
     return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=output)
 
 
+def test_sudo_authentication_failure_is_reported_as_missing_helper():
+    service = LatencyProbeService(
+        accounting=FakeAccounting(),
+        runner=lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            args=[],
+            returncode=1,
+            stdout="",
+            stderr="sudo: interactive authentication required\n",
+        ),
+        clock=lambda: NOW,
+        platform_name="linux",
+    )
+
+    sample = service._probe_one(1, NOW)
+
+    assert sample.error_code == "helper_missing"
+    assert sample.average_ms is None
+
+
 def test_probe_parser_accepts_only_one_fixed_format_line():
     assert parse_probe_output("ok 5 4 1.25 0.30\n") == (5, 4, 1.25, 0.3)
     for reason in ("no_namespace", "timeout", "no_reply", "parse_error"):

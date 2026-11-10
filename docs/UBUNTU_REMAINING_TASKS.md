@@ -3,11 +3,11 @@
 **Handoff date:** 2026-11-10  
 **Related audit:** `docs/WINDOWS_COMPLETION_AUDIT.md`
 
-This is an actionable native-Ubuntu handoff. It does not claim that Windows or mocked tests are Linux integration evidence.
+This is an actionable native-Ubuntu handoff. It does not claim that Windows or mocked tests are Linux integration evidence. The 2026-11-10 frontend/API repair pass did not exercise the namespace lab or a separate Ubuntu gateway VM.
 
 ## U-01 — Confirm VM network and gateway reachability
 
-**Status:** BLOCKED_ENVIRONMENT from Windows; earlier supplied addresses were unreachable.
+**Status:** NOT REVALIDATED; earlier Windows-to-VM checks could not reach the supplied addresses.
 
 Already implemented:
 - Gateway transport and ingest configuration via `EB_GATEWAY_URL` and `EB_GATEWAY_TOKEN`.
@@ -173,7 +173,7 @@ Run only after the lab and helper are validated. Record raw outputs, configurati
 
 ## U-10 — Native Linux regression suite
 
-**Status:** BLOCKED_ENVIRONMENT on current Windows host.
+**Status:** NOT RUN in this audit pass; run on the target Ubuntu environment to record native Linux results.
 
 Run on Ubuntu:
 
@@ -181,7 +181,7 @@ Run on Ubuntu:
 python -m pytest -q
 ```
 
-The Windows result of 349 passing and 37 shell-test failures is not Linux validation. The failures were caused by unavailable Bash/WSL execution on Windows.
+The historical Windows result of 349 passing and 37 shell-test failures is not Linux validation. The API contract tests run in the current Linux development environment are not a substitute for this full native regression run.
 
 ## Core versus roadmap impact
 

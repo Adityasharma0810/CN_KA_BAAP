@@ -3,11 +3,13 @@ const API_BASE = (import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000")
 const REQUEST_TIMEOUT_MS = 10000;
 
 export class ApiError extends Error {
-  constructor(message, kind, status = null) {
+  constructor(message, kind, status = null, details = {}) {
     super(message);
     this.name = "ApiError";
     this.kind = kind;
     this.status = status;
+    this.code = details.code || null;
+    this.installCommand = details.installCommand || null;
   }
 }
 
@@ -32,10 +34,29 @@ async function request(path, { signal, ...options } = {}) {
     });
 
     if (!response.ok) {
+      let details = {};
+      if (response.status === 503) {
+        try {
+          const body = await response.json();
+          const detail = body?.detail;
+          if (detail?.code === "helper_missing") {
+            details = {
+              code: detail.code,
+              installCommand:
+                detail.install_command === "sudo bash scripts/privileged/install_eb_priv.sh"
+                  ? detail.install_command
+                  : null,
+            };
+          }
+        } catch {
+          // Keep the generic HTTP error if the server response is not JSON.
+        }
+      }
       throw new ApiError(
         `Request failed (HTTP ${response.status}).`,
         "http",
         response.status,
+        details,
       );
     }
 
@@ -102,15 +123,16 @@ export const getSystemCapabilities = ({ signal } = {}) =>
 export const getScenarioCatalog = ({ signal } = {}) =>
   request("/api/v1/scenarios", { signal });
 
-export const startScenario = (scenarioId, body = {}) =>
+export const startScenario = (scenarioId, body = {}, { signal } = {}) =>
   request(`/api/v1/scenarios/${encodeURIComponent(scenarioId)}/start`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    signal,
   });
 
-export const stopScenario = () =>
-  request("/api/v1/scenarios/stop", { method: "POST" });
+export const stopScenario = ({ signal } = {}) =>
+  request("/api/v1/scenarios/stop", { method: "POST", signal });
 
 export const getCurrentQoe = ({ signal } = {}) =>
   request("/api/v1/qoe/current", { signal });

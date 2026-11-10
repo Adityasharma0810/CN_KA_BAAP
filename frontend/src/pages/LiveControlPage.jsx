@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { getCurrentObservations, getCurrentQoe, getGatewayStatus, getHealth, getSystemCapabilities } from "../api/client";
-import { StatusBadge, StatusBadges } from "../components/ui/StatusBadge";
+import { StatusBadge } from "../components/ui/StatusBadge";
 import "./LiveControlPage.css";
 
 const POLL_OPTIONS = [10, 30, 60];
@@ -32,35 +32,39 @@ export function LiveControlPage() {
       qoe: qoe.status === "fulfilled" ? qoe.value : null,
     });
     setError(failures.length === jobs.length ? "Backend telemetry is unavailable." : failures.length ? "Some telemetry sources are unavailable." : null);
-    setLastUpdate(new Date().toISOString());
+    if (failures.length < jobs.length) {
+      setLastUpdate(new Date().toISOString());
+    }
     setLoading(false);
   }, []);
 
   useEffect(() => {
     let disposed = false;
     let controller;
-    const poll = () => {
-      controller?.abort();
+    let timer;
+    const poll = async () => {
       controller = new AbortController();
-      if (!disposed) refresh(controller.signal);
+      await refresh(controller.signal);
+      if (!disposed && !controller.signal.aborted) {
+        timer = window.setTimeout(poll, pollingInterval * 1000);
+      }
     };
-    poll();
-    const timer = window.setInterval(poll, pollingInterval * 1000);
+    void poll();
     return () => {
       disposed = true;
       controller?.abort();
-      window.clearInterval(timer);
+      window.clearTimeout(timer);
     };
   }, [pollingInterval, refresh]);
 
   const observations = snapshot?.observations?.observations || [];
   const scores = snapshot?.qoe?.clients || [];
-  const system = observations.reduce((totals, item) => ({
-    upload: totals.upload + (item.observation.upload_mbps || 0),
-    download: totals.download + (item.observation.download_mbps || 0),
-  }), { upload: 0, download: 0 });
+  const totalUpload = sumAvailableMetric(observations, "upload_mbps");
+  const totalDownload = sumAvailableMetric(observations, "download_mbps");
+  const availableScores = scores.filter((item) => item.score != null);
+  const environments = [...new Set(observations.map((item) => item.observation.metadata?.environment).filter(Boolean))];
   const healthStatus = snapshot?.health?.status || "unavailable";
-  const gatewayState = snapshot?.gateway?.status || snapshot?.capabilities?.lab_ingest_state || "unavailable";
+  const gatewayState = snapshot?.gateway?.status || "unavailable";
 
   return (
     <div className="live-control-page">
@@ -98,12 +102,13 @@ export function LiveControlPage() {
       <section className="live-control-page__section live-control-page__metrics">
         <h2>Observed Metrics</h2>
         <div className="metrics-grid">
-          <MetricTile label="Total upload" value={observations.length ? `${system.upload.toFixed(1)} Mbps` : "Unavailable"} />
-          <MetricTile label="Total download" value={observations.length ? `${system.download.toFixed(1)} Mbps` : "Unavailable"} />
-          <MetricTile label="Client observations" value={observations.length ? String(observations.length) : "Unavailable"} />
-          <MetricTile label="QoE scores" value={scores.length ? String(scores.length) : "Unavailable"} />
+          <MetricTile label="Client upload sum" value={totalUpload == null ? "Unavailable" : `${totalUpload.toFixed(1)} Mbps`} />
+          <MetricTile label="Client download sum" value={totalDownload == null ? "Unavailable" : `${totalDownload.toFixed(1)} Mbps`} />
+          <MetricTile label="Client observations" value={snapshot?.observations ? String(observations.length) : "Unavailable"} />
+          <MetricTile label="QoE scores" value={snapshot?.qoe ? String(availableScores.length) : "Unavailable"} />
           <MetricTile label="Gateway" value={gatewayState} />
-          <MetricTile label="Data state" value={loading ? "Loading" : observations.some((item) => item.observation.metadata?.stale) ? "Stale" : "Current / unknown"} />
+          <MetricTile label="Lab ingest" value={snapshot?.capabilities?.lab_ingest_state || "Unavailable"} />
+          <MetricTile label="Data state" value={loading ? "Loading" : !observations.length ? "Unavailable" : observations.some((item) => item.observation.metadata?.stale) ? "Stale" : "Current"} />
         </div>
       </section>
 
@@ -116,7 +121,12 @@ export function LiveControlPage() {
       <section className="live-control-page__section live-control-page__safety">
         <h2>Safety and scope</h2>
         <div className="safety-notice">
-          <StatusBadges.Simulated size="lg" />
+          {environments.map((environment) => (
+            <StatusBadge key={environment} variant={environment === "simulated_lab" ? "simulated" : "unknown"} size="lg">
+              {environment.replaceAll("_", " ").toUpperCase()}
+            </StatusBadge>
+          ))}
+          {!environments.length && <StatusBadge variant="unknown" size="lg">PROVENANCE UNAVAILABLE</StatusBadge>}
           <div className="safety-notice__content">
             <p><strong>Control availability:</strong> The current product API exposes observation and Scenario Lab endpoints, not a general Windows start/pause enforcement endpoint.</p>
             <p><strong>Environment:</strong> Linux namespace enforcement must remain explicitly labelled as simulated lab behavior. Physical router and household-device control is unavailable.</p>
@@ -131,11 +141,18 @@ function MetricTile({ label, value }) {
   return <div className="metric-tile"><span className="metric-tile__label">{label}</span><span className="metric-tile__value">{value}</span></div>;
 }
 
+function sumAvailableMetric(observations, field) {
+  if (!observations.length || observations.some((item) => !Number.isFinite(item.observation[field]))) {
+    return null;
+  }
+  return observations.reduce((total, item) => total + item.observation[field], 0);
+}
+
 function ClientCard({ observation, score }) {
   const metadata = observation.metadata || {};
   const qoe = score?.score;
   return <article className="client-card">
-    <div className="client-card__header"><div className="client-card__title"><h3 className="client-card__name">Anonymous client</h3><StatusBadge variant={metadata.stale ? "stale" : "success"} size="sm">{metadata.stale ? "STALE" : "OBSERVED"}</StatusBadge></div></div>
+    <div className="client-card__header"><div className="client-card__title"><h3 className="client-card__name">Anonymous client</h3><StatusBadge variant={metadata.stale ? "stale" : "success"} size="sm">{metadata.stale ? "STALE" : "OBSERVED"}</StatusBadge>{metadata.environment === "simulated_lab" && <StatusBadge variant="simulated" size="sm">SIMULATED LAB</StatusBadge>}</div></div>
     <dl className="client-card__metrics">
       <div className="client-card__metric"><dt>Upload</dt><dd>{formatMetric(observation.upload_mbps, "Mbps")}</dd></div>
       <div className="client-card__metric"><dt>Download</dt><dd>{formatMetric(observation.download_mbps, "Mbps")}</dd></div>

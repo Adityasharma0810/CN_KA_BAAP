@@ -1,7 +1,7 @@
 # Windows Completion Audit
 
 **Date:** 2026-11-10  
-**Repository:** `main` at `7813423 complete frontend`  
+**Repository:** `main` at `cf5c19e` (`Windows completion pass: real API integration, honest model page, audit docs`)
 **Scope:** Windows-compatible completion pass; native Ubuntu and hardware work remain explicitly separated.
 
 This report supersedes stale Windows-side status claims in `docs/PROJECT_COMPLETION_TRACKER.md` for this audit. Native Ubuntu work is not marked complete without native evidence.
@@ -10,7 +10,7 @@ This report supersedes stale Windows-side status claims in `docs/PROJECT_COMPLET
 
 The repository contains a Windows-capable FastAPI/SQLite product and a separate Ubuntu namespace gateway lab. The product observation, storage, API, Scenario Lab, gateway transport, and gateway ingest foundations are implemented. The Linux lab has namespace accounting, restricted helper enforcement, TBF shaping, and a rule-based controller.
 
-The three-page React shell now uses the existing API client for shell health checks and Live Control observations. Compare and Model Intelligence still require backend contracts for real experiment and model lifecycle data; they must not display their current static values as measured production data.
+The three-page React shell uses the shared API client. Live Control reads health, gateway, platform capability, client-scoped observations, and QoE data. Compare uses the bounded Scenario Lab catalog/start/stop lifecycle only; the backend has no paired A/B results endpoint. The repair in this audit removes misleading status fallbacks, overlapping polling, and decorative baseline/optimized comparison labels. Model Intelligence remains a disclosure of offline artifacts and the current product path, not live inference.
 
 ## Status key
 
@@ -78,9 +78,11 @@ Physical per-device attribution, Wi-Fi diagnostics, physical-router QoS, and mul
 
 ## Validation run on 2026-11-10
 
-- Frontend lint: PASS.
-- Frontend production build: PASS; approximately 699 kB JavaScript chunk warning remains.
-- Targeted gateway transport and ingest tests: 7 PASS.
-- Full Python suite: 349 PASS, 37 FAIL. Failures are Linux shell tests unable to invoke Bash through the current Windows/WSL environment (`execvpe(/bin/bash) failed`).
-- Python compilation: PASS.
-- Collected tests: 386.
+- Frontend ESLint: PASS (`node frontend/node_modules/eslint/bin/eslint.js frontend`).
+- Frontend production build: PASS (`vite v8.3.6`; 291.53 kB JS bundle, 90.44 kB gzip).
+- Targeted backend contract/regression tests: 58 PASS on the current Linux development environment; one Starlette/httpx deprecation warning.
+- Full Python suite: not rerun in this repair pass; the older Windows-host result (349 PASS, 37 shell-dependent failures) is historical and not current validation.
+- Frontend unit tests: not configured; no frontend test script or test files exist.
+- Browser route checks: pending runtime availability.
+
+The current checkout is on Linux. These results do not establish native Windows execution or Ubuntu VM/network integration.

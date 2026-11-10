@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { StatusBadge, StatusBadges } from "../components/ui/StatusBadge";
+import { StatusBadge } from "../components/ui/StatusBadge";
 import "./ModelIntelligencePage.css";
 
 /**
@@ -25,11 +25,11 @@ export function ModelIntelligencePage() {
         <h2>ML Pipeline</h2>
         <p className="model-intelligence-page__section-description">
           The six-stage pipeline below shows the intended product architecture.
-          Stages marked <StatusBadges.ModelUnavailable size="sm" /> are not connected to the live product
+          Stages marked <StatusBadge variant="unknown" size="sm">NOT INTEGRATED</StatusBadge> are not connected to the live product
           decision path in the current checkout.
         </p>
         <div className="pipeline">
-          <PipelineStage name="Observation" status="active" description="Collect telemetry via backend APIs" note="INTEGRATED" />
+          <PipelineStage name="Observation" status="integrated" description="Collect telemetry via backend APIs" note="INTEGRATED" />
           <PipelineArrow />
           <PipelineStage name="Classification" status="unavailable" description="Classify traffic workloads" note="NOT_STARTED in product path" />
           <PipelineArrow />
@@ -37,7 +37,7 @@ export function ModelIntelligencePage() {
           <PipelineArrow />
           <PipelineStage name="Forecasting" status="unavailable" description="Predict capacity changes" note="Offline artifacts only" />
           <PipelineArrow />
-          <PipelineStage name="QoE Scoring" status="active" description="Score experience quality" note="Deterministic proxy; not validated subjective QoE" />
+          <PipelineStage name="QoE Scoring" status="proxy" description="Score experience quality" note="Deterministic proxy; not validated subjective QoE" />
           <PipelineArrow />
           <PipelineStage name="Optimization" status="unavailable" description="Allocate resources fairly" note="Weighted allocation; not full max-min QoE optimizer" />
         </div>
@@ -153,7 +153,13 @@ function PipelineStage({ name, status, description, note }) {
     <div className="pipeline-stage" role="group" aria-label={`${name} stage`}>
       <div className="pipeline-stage__header">
         <h3 className="pipeline-stage__name">{name}</h3>
-        {status === "active" ? <StatusBadges.ModelActive size="sm" /> : <StatusBadges.ModelUnavailable size="sm" />}
+        {status === "integrated" ? (
+          <StatusBadge variant="success" size="sm">API INTEGRATED</StatusBadge>
+        ) : status === "proxy" ? (
+          <StatusBadge variant="warning" size="sm">LIVE PROXY</StatusBadge>
+        ) : (
+          <StatusBadge variant="unknown" size="sm">NOT INTEGRATED</StatusBadge>
+        )}
       </div>
       <p className="pipeline-stage__description">{description}</p>
       <div className="pipeline-stage__meta">
