@@ -1,243 +1,125 @@
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { getCurrentObservations, getCurrentQoe, getGatewayStatus, getHealth, getSystemCapabilities } from "../api/client";
 import { StatusBadge, StatusBadges } from "../components/ui/StatusBadge";
 import "./LiveControlPage.css";
 
-/**
- * LiveControlPage - Live system control, 30-second interval monitoring, and client details
- * Allows starting/stopping Experience Budget and monitoring real-time performance
- */
+const POLL_OPTIONS = [10, 30, 60];
+
 export function LiveControlPage() {
-  const [systemStatus, setSystemStatus] = useState("stopped"); // stopped, running, paused, error
   const [pollingInterval, setPollingInterval] = useState(30);
-  const [lastUpdate, setLastUpdate] = useState(null);
+  const [snapshot, setSnapshot] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [lastUpdate, setLastUpdate] = useState(null);
 
-  // Static mock data - will be replaced with real-time API polling
-  const [clients] = useState([
-    {
-      id: "client-1",
-      label: "Client 01",
-      state: "online",
-      upload: 2.3,
-      download: 18.7,
-      latency: 28.5,
-      jitter: 4.2,
-      packetLoss: 0.1,
-      workload: "VoIP / Video Call",
-      qoe: 87,
-      confidence: 0.94,
-      policyApplied: "Priority",
-      lastSeen: "2026-11-10T09:30:45Z",
-    },
-    {
-      id: "client-2",
-      label: "Client 02",
-      state: "online",
-      upload: 1.1,
-      download: 45.2,
-      latency: 32.1,
-      jitter: 5.8,
-      packetLoss: 0.2,
-      workload: "Streaming (4K)",
-      qoe: 81,
-      confidence: 0.89,
-      policyApplied: "Standard",
-      lastSeen: "2026-11-10T09:30:45Z",
-    },
-    {
-      id: "client-3",
-      label: "Client 03",
-      state: "online",
-      upload: 6.4,
-      download: 12.3,
-      latency: 24.7,
-      jitter: 3.1,
-      packetLoss: 0.05,
-      workload: "Gaming",
-      qoe: 92,
-      confidence: 0.96,
-      policyApplied: "Priority",
-      lastSeen: "2026-11-10T09:30:45Z",
-    },
-  ]);
-
-  const [systemMetrics] = useState({
-    totalUpload: 9.8,
-    totalDownload: 76.2,
-    activeClients: 3,
-    totalClients: 3,
-    averageQoE: 86.7,
-    worstQoE: 81,
-    policiesApplied: 2,
-    observationRate: 1.0,
-  });
-
-  // Simulate polling interval
-  useEffect(() => {
-    if (systemStatus === "running") {
-      const interval = setInterval(() => {
-        setLastUpdate(new Date().toISOString());
-        // TODO: Replace with real API polling
-      }, pollingInterval * 1000);
-
-      return () => clearInterval(interval);
-    }
-  }, [systemStatus, pollingInterval]);
-
-  const handleStart = async () => {
-    setSystemStatus("running");
-    setError(null);
+  const refresh = useCallback(async (signal) => {
+    setLoading(true);
+    const jobs = await Promise.allSettled([
+      getHealth({ signal }),
+      getGatewayStatus({ signal }),
+      getSystemCapabilities({ signal }),
+      getCurrentObservations({ scope: "client" }, { signal }),
+      getCurrentQoe({ signal }),
+    ]);
+    if (signal?.aborted) return;
+    const [health, gateway, capabilities, observations, qoe] = jobs;
+    const failures = jobs.filter((result) => result.status === "rejected");
+    setSnapshot({
+      health: health.status === "fulfilled" ? health.value : null,
+      gateway: gateway.status === "fulfilled" ? gateway.value : null,
+      capabilities: capabilities.status === "fulfilled" ? capabilities.value : null,
+      observations: observations.status === "fulfilled" ? observations.value : null,
+      qoe: qoe.status === "fulfilled" ? qoe.value : null,
+    });
+    setError(failures.length === jobs.length ? "Backend telemetry is unavailable." : failures.length ? "Some telemetry sources are unavailable." : null);
     setLastUpdate(new Date().toISOString());
-    // TODO: Call backend API to start Experience Budget
-  };
+    setLoading(false);
+  }, []);
 
-  const handleStop = async () => {
-    setSystemStatus("stopped");
-    setLastUpdate(null);
-    // TODO: Call backend API to stop Experience Budget
-  };
+  useEffect(() => {
+    let disposed = false;
+    let controller;
+    const poll = () => {
+      controller?.abort();
+      controller = new AbortController();
+      if (!disposed) refresh(controller.signal);
+    };
+    poll();
+    const timer = window.setInterval(poll, pollingInterval * 1000);
+    return () => {
+      disposed = true;
+      controller?.abort();
+      window.clearInterval(timer);
+    };
+  }, [pollingInterval, refresh]);
 
-  const handlePause = async () => {
-    setSystemStatus("paused");
-    // TODO: Call backend API to pause Experience Budget
-  };
+  const observations = snapshot?.observations?.observations || [];
+  const scores = snapshot?.qoe?.clients || [];
+  const system = observations.reduce((totals, item) => ({
+    upload: totals.upload + (item.observation.upload_mbps || 0),
+    download: totals.download + (item.observation.download_mbps || 0),
+  }), { upload: 0, download: 0 });
+  const healthStatus = snapshot?.health?.status || "unavailable";
+  const gatewayState = snapshot?.gateway?.status || snapshot?.capabilities?.lab_ingest_state || "unavailable";
 
   return (
     <div className="live-control-page">
-      {/* Page Header */}
       <header className="live-control-page__header">
         <div className="live-control-page__title-section">
           <h1>Live Control</h1>
-          <p className="live-control-page__subtitle">
-            Real-time system control and client monitoring
-          </p>
+          <p className="live-control-page__subtitle">Live observation and control status. Values are shown only when supplied by the backend.</p>
         </div>
       </header>
 
-      {/* System Control Panel */}
       <section className="live-control-page__section live-control-page__control">
-        <h2>System Control</h2>
+        <h2>System Status</h2>
         <div className="control-panel">
-          <div className="control-panel__status">
+          <div className="control-panel__status" aria-live="polite">
             <div className="control-panel__status-indicator">
-              <span className="control-panel__status-label">System Status</span>
-              {systemStatus === "running" && <StatusBadges.Live size="lg" />}
-              {systemStatus === "stopped" && <StatusBadge variant="offline" size="lg">STOPPED</StatusBadge>}
-              {systemStatus === "paused" && <StatusBadge variant="warning" size="lg">PAUSED</StatusBadge>}
-              {systemStatus === "error" && <StatusBadge variant="failure" size="lg">ERROR</StatusBadge>}
+              <span className="control-panel__status-label">Backend</span>
+              <StatusBadge variant={healthStatus === "healthy" ? "success" : "unknown"} size="lg">{healthStatus.toUpperCase()}</StatusBadge>
             </div>
-            {lastUpdate && (
-              <div className="control-panel__last-update">
-                <span className="control-panel__label">Last Update:</span>
-                <span className="control-panel__value">{new Date(lastUpdate).toLocaleTimeString()}</span>
-              </div>
-            )}
-          </div>
-          <div className="control-panel__actions">
-            <button
-              className="btn btn--primary"
-              onClick={handleStart}
-              disabled={systemStatus === "running"}
-            >
-              Start Experience Budget
-            </button>
-            <button
-              className="btn btn--secondary"
-              onClick={handlePause}
-              disabled={systemStatus !== "running"}
-            >
-              Pause
-            </button>
-            <button
-              className="btn btn--secondary"
-              onClick={handleStop}
-              disabled={systemStatus === "stopped"}
-            >
-              Stop
-            </button>
+            <div className="control-panel__last-update">
+              <span className="control-panel__label">Last refresh</span>
+              <span className="control-panel__value">{lastUpdate ? new Date(lastUpdate).toLocaleTimeString() : "Never"}</span>
+            </div>
           </div>
           <div className="control-panel__settings">
-            <label>
-              <span>Polling Interval</span>
-              <select
-                value={pollingInterval}
-                onChange={(e) => setPollingInterval(parseInt(e.target.value))}
-                disabled={systemStatus === "running"}
-              >
-                <option value={10}>10 seconds</option>
-                <option value={30}>30 seconds</option>
-                <option value={60}>60 seconds</option>
+            <label htmlFor="polling-interval"><span>Polling interval</span>
+              <select id="polling-interval" value={pollingInterval} onChange={(event) => setPollingInterval(Number(event.target.value))}>
+                {POLL_OPTIONS.map((seconds) => <option key={seconds} value={seconds}>{seconds} seconds</option>)}
               </select>
             </label>
           </div>
-          {error && (
-            <div className="control-panel__error" role="alert">
-              {error}
-            </div>
-          )}
+          {error && <div className="control-panel__error" role="alert">{error}</div>}
         </div>
       </section>
 
-      {/* System Metrics Overview */}
       <section className="live-control-page__section live-control-page__metrics">
-        <h2>System Metrics</h2>
+        <h2>Observed Metrics</h2>
         <div className="metrics-grid">
-          <MetricTile
-            label="Total Upload"
-            value={`${systemMetrics.totalUpload.toFixed(1)} Mbps`}
-            status="normal"
-          />
-          <MetricTile
-            label="Total Download"
-            value={`${systemMetrics.totalDownload.toFixed(1)} Mbps`}
-            status="normal"
-          />
-          <MetricTile
-            label="Active Clients"
-            value={`${systemMetrics.activeClients} / ${systemMetrics.totalClients}`}
-            status="normal"
-          />
-          <MetricTile
-            label="Average QoE"
-            value={`${systemMetrics.averageQoE.toFixed(1)} / 100`}
-            status={systemMetrics.averageQoE >= 80 ? "good" : systemMetrics.averageQoE >= 60 ? "warning" : "bad"}
-          />
-          <MetricTile
-            label="Worst Client QoE"
-            value={`${systemMetrics.worstQoE} / 100`}
-            status={systemMetrics.worstQoE >= 70 ? "good" : systemMetrics.worstQoE >= 50 ? "warning" : "bad"}
-          />
-          <MetricTile
-            label="Policies Applied"
-            value={systemMetrics.policiesApplied.toString()}
-            status="normal"
-          />
+          <MetricTile label="Total upload" value={observations.length ? `${system.upload.toFixed(1)} Mbps` : "Unavailable"} />
+          <MetricTile label="Total download" value={observations.length ? `${system.download.toFixed(1)} Mbps` : "Unavailable"} />
+          <MetricTile label="Client observations" value={observations.length ? String(observations.length) : "Unavailable"} />
+          <MetricTile label="QoE scores" value={scores.length ? String(scores.length) : "Unavailable"} />
+          <MetricTile label="Gateway" value={gatewayState} />
+          <MetricTile label="Data state" value={loading ? "Loading" : observations.some((item) => item.observation.metadata?.stale) ? "Stale" : "Current / unknown"} />
         </div>
       </section>
 
-      {/* Client Details */}
       <section className="live-control-page__section live-control-page__clients">
-        <h2>Client Details</h2>
-        <p className="live-control-page__section-description">
-          Real-time performance metrics for each connected client. Updated every {pollingInterval} seconds when running.
-        </p>
-        <div className="client-cards">
-          {clients.map((client) => (
-            <ClientCard key={client.id} client={client} isLive={systemStatus === "running"} />
-          ))}
-        </div>
+        <h2>Anonymous Client Observations</h2>
+        <p className="live-control-page__section-description">Only anonymous client records returned by the product API are displayed. Missing values remain unavailable.</p>
+        {observations.length ? <div className="client-cards">{observations.map((item) => <ClientCard key={item.id} observation={item.observation} score={scores.find((candidate) => candidate.client_id === item.observation.metadata?.client_id)} />)}</div> : <EmptyState text={loading ? "Loading observations…" : "No client observations are available."} />}
       </section>
 
-      {/* Safety Notice */}
       <section className="live-control-page__section live-control-page__safety">
-        <h2>Safety & Rollback</h2>
+        <h2>Safety and scope</h2>
         <div className="safety-notice">
-          <StatusBadge variant="info" size="lg">INFORMATION</StatusBadge>
+          <StatusBadges.Simulated size="lg" />
           <div className="safety-notice__content">
-            <p><strong>Automatic Rollback:</strong> Experience Budget automatically reverts changes if QoE degrades below baseline or client connectivity is lost.</p>
-            <p><strong>Manual Override:</strong> Use the Stop button to immediately halt all QoS policies and return to unmanaged baseline operation.</p>
-            <p><strong>Privacy Protection:</strong> All client identifiers are anonymous and randomized. No persistent tracking across sessions.</p>
-            <p><strong>Testbed Only:</strong> This control panel operates the Linux namespace testbed. It does not control physical router or household device behavior.</p>
+            <p><strong>Control availability:</strong> The current product API exposes observation and Scenario Lab endpoints, not a general Windows start/pause enforcement endpoint.</p>
+            <p><strong>Environment:</strong> Linux namespace enforcement must remain explicitly labelled as simulated lab behavior. Physical router and household-device control is unavailable.</p>
           </div>
         </div>
       </section>
@@ -245,108 +127,29 @@ export function LiveControlPage() {
   );
 }
 
-/* Metric Tile Component */
-function MetricTile({ label, value, status }) {
-  const statusVariant = status === "good" ? "success" : status === "warning" ? "warning" : status === "bad" ? "failure" : "unknown";
-
-  return (
-    <div className={`metric-tile metric-tile--${status}`}>
-      <span className="metric-tile__label">{label}</span>
-      <span className="metric-tile__value">{value}</span>
-      {status !== "normal" && (
-        <StatusBadge variant={statusVariant} size="sm" className="metric-tile__status" />
-      )}
-    </div>
-  );
+function MetricTile({ label, value }) {
+  return <div className="metric-tile"><span className="metric-tile__label">{label}</span><span className="metric-tile__value">{value}</span></div>;
 }
 
-/* Client Card Component */
-function ClientCard({ client, isLive }) {
-  const qoeStatus = client.qoe >= 80 ? "success" : client.qoe >= 60 ? "warning" : "failure";
-  const stateStatus = client.state === "online" ? "success" : "offline";
-
-  return (
-    <div className={`client-card ${!isLive ? "client-card--stale" : ""}`}>
-      <div className="client-card__header">
-        <div className="client-card__title">
-          <h3 className="client-card__name">{client.label}</h3>
-          <StatusBadge variant={stateStatus} size="sm">
-            {client.state.toUpperCase()}
-          </StatusBadge>
-        </div>
-        {isLive && (
-          <div className="client-card__live-indicator">
-            <span className="client-card__live-dot" aria-hidden="true"></span>
-            <span className="client-card__live-text">LIVE</span>
-          </div>
-        )}
-      </div>
-
-      <dl className="client-card__metrics">
-        <div className="client-card__metric">
-          <dt>↑ Upload</dt>
-          <dd>{client.upload.toFixed(1)} Mbps</dd>
-        </div>
-        <div className="client-card__metric">
-          <dt>↓ Download</dt>
-          <dd>{client.download.toFixed(1)} Mbps</dd>
-        </div>
-        <div className="client-card__metric">
-          <dt>Latency</dt>
-          <dd>{client.latency.toFixed(1)} ms</dd>
-        </div>
-        <div className="client-card__metric">
-          <dt>Jitter</dt>
-          <dd>{client.jitter.toFixed(1)} ms</dd>
-        </div>
-        <div className="client-card__metric">
-          <dt>Loss</dt>
-          <dd>{client.packetLoss.toFixed(2)}%</dd>
-        </div>
-      </dl>
-
-      <div className="client-card__workload">
-        <span className="client-card__workload-label">Workload:</span>
-        <span className="client-card__workload-value">{client.workload}</span>
-        <span className="client-card__confidence">({Math.round(client.confidence * 100)}% confidence)</span>
-      </div>
-
-      <div className="client-card__qoe">
-        <div className="client-card__qoe-header">
-          <span className="client-card__qoe-label">QoE Score</span>
-          <StatusBadge variant={qoeStatus} size="sm">
-            {client.qoe >= 80 ? "GOOD" : client.qoe >= 60 ? "FAIR" : "POOR"}
-          </StatusBadge>
-        </div>
-        <div className="client-card__qoe-bar">
-          <div
-            className="client-card__qoe-fill"
-            style={{ width: `${client.qoe}%` }}
-            role="progressbar"
-            aria-valuenow={client.qoe}
-            aria-valuemin="0"
-            aria-valuemax="100"
-            aria-label={`QoE score: ${client.qoe} out of 100`}
-          >
-            <span className="client-card__qoe-value">{client.qoe} / 100</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="client-card__policy">
-        <span className="client-card__policy-label">Policy Applied:</span>
-        <StatusBadge variant={client.policyApplied === "Priority" ? "info" : "unknown"} size="sm">
-          {client.policyApplied.toUpperCase()}
-        </StatusBadge>
-      </div>
-
-      <div className="client-card__footer">
-        <span className="client-card__last-seen">
-          Last seen: {new Date(client.lastSeen).toLocaleTimeString()}
-        </span>
-      </div>
-    </div>
-  );
+function ClientCard({ observation, score }) {
+  const metadata = observation.metadata || {};
+  const qoe = score?.score;
+  return <article className="client-card">
+    <div className="client-card__header"><div className="client-card__title"><h3 className="client-card__name">Anonymous client</h3><StatusBadge variant={metadata.stale ? "stale" : "success"} size="sm">{metadata.stale ? "STALE" : "OBSERVED"}</StatusBadge></div></div>
+    <dl className="client-card__metrics">
+      <div className="client-card__metric"><dt>Upload</dt><dd>{formatMetric(observation.upload_mbps, "Mbps")}</dd></div>
+      <div className="client-card__metric"><dt>Download</dt><dd>{formatMetric(observation.download_mbps, "Mbps")}</dd></div>
+      <div className="client-card__metric"><dt>Latency</dt><dd>{formatMetric(observation.rtt_ms, "ms")}</dd></div>
+      <div className="client-card__metric"><dt>Jitter</dt><dd>{formatMetric(observation.rtt_variation_ms, "ms")}</dd></div>
+      <div className="client-card__metric"><dt>Loss</dt><dd>{formatMetric(observation.packet_loss_percent, "%")}</dd></div>
+    </dl>
+    <div className="client-card__workload"><span className="client-card__workload-label">Class</span><span className="client-card__workload-value">{score?.traffic_class || "Unknown"}</span></div>
+    <div className="client-card__qoe"><div className="client-card__qoe-header"><span className="client-card__qoe-label">QoE score</span><StatusBadge variant={qoe == null ? "unknown" : qoe >= 75 ? "success" : "warning"} size="sm">{qoe == null ? "UNAVAILABLE" : `${qoe}/100`}</StatusBadge></div></div>
+    <div className="client-card__footer"><span className="client-card__last-seen">Observed {metadata.observed_at ? new Date(metadata.observed_at).toLocaleTimeString() : "unknown"}</span></div>
+  </article>;
 }
+
+function formatMetric(value, unit) { return value == null ? "Unavailable" : `${Number(value).toFixed(2)} ${unit}`; }
+function EmptyState({ text }) { return <div className="control-panel__error" role="status">{text}</div>; }
 
 export default LiveControlPage;

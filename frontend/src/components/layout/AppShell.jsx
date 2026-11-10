@@ -2,12 +2,13 @@ import { useState, useEffect } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import "./AppShell.css";
 import { StatusBadge, StatusBadges } from "../ui/StatusBadge";
+import { getGatewayStatus, getHealth, getSystemCapabilities } from "../../api/client";
 
 /**
  * AppShell - Main layout with sidebar navigation for three pages
  * Compare, Model Intelligence, Live Control
  */
-export function AppShell() {
+export function AppShell({ children }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [backendStatus, setBackendStatus] = useState("checking");
   const [gatewayStatus, setGatewayStatus] = useState("unknown");
@@ -17,14 +18,10 @@ export function AppShell() {
   useEffect(() => {
     const checkBackend = async () => {
       try {
-        const response = await fetch("/api/v1/health");
-        if (response.ok) {
-          setBackendStatus("connected");
-        } else {
-          setBackendStatus("error");
-        }
-      } catch {
-        setBackendStatus("disconnected");
+        await getHealth();
+        setBackendStatus("connected");
+      } catch (error) {
+        setBackendStatus(error?.kind === "http" ? "error" : "disconnected");
       }
     };
 
@@ -37,20 +34,12 @@ export function AppShell() {
   useEffect(() => {
     const fetchStatus = async () => {
       try {
-        const [capsRes, gatewayRes] = await Promise.all([
-          fetch("/api/v1/system/capabilities"),
-          fetch("/api/v1/gateway/status"),
+        const [caps, gateway] = await Promise.all([
+          getSystemCapabilities(),
+          getGatewayStatus(),
         ]);
-
-        if (capsRes.ok) {
-          const caps = await capsRes.json();
-          setEnvironment(caps.data?.environment || "unknown");
-        }
-
-        if (gatewayRes.ok) {
-          const gateway = await gatewayRes.json();
-          setGatewayStatus(gateway.data?.status || "unknown");
-        }
+        setEnvironment(caps.data?.environment || caps.environment || "unknown");
+        setGatewayStatus(gateway.data?.status || gateway.status || "unknown");
       } catch {
         setGatewayStatus("error");
         setEnvironment("error");
@@ -188,7 +177,7 @@ export function AppShell() {
         </header>
 
         <main className="app-shell__content" role="main">
-          <Outlet />
+          {children || <Outlet />}
         </main>
       </div>
     </div>
