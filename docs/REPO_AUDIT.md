@@ -4,6 +4,12 @@
 **Updated:** 2026-11-07 (adds the V0.9 Linux Gateway Lab work done in the Ubuntu VM)
 **Scope:** Repository contents and the checks that were actually run. Items in finding 18 were checked by the author and recorded as passing without quoted measurements.
 
+> **Historical snapshot:** This audit predates the Ubuntu safety and integration
+> changes recorded in `UBUNTU_IMPLEMENTATION_PLAN.md`. Its lab setup, NAT,
+> public-API, and performance descriptions are not instructions for the current
+> checkout, and its reported experiments were not reproduced in the current
+> environment. See `UBUNTU_TEST_RESULTS.md` for current-session evidence.
+
 ## Executive summary
 
 The repository started as a local, aggregate network-monitoring prototype: a FastAPI backend collects adapter bandwidth, connectivity and public-endpoint quality measurements, stores them in SQLite, and serves them to a React dashboard, plus aggregate Windows Mobile Hotspot monitoring.
@@ -38,8 +44,8 @@ Runs inside the Ubuntu VM (Ubuntu 26.04 LTS, Python 3.14.4). The VM has two Virt
 
 | File | Purpose |
 | --- | --- |
-| `setup_gateway.sh` | Creates bridge `br-lab` (10.50.0.1/24) and three client network namespaces (`client1..3`, 10.50.0.11-13) joined by veth pairs. Adds per-client DNS and NAT (nftables table `eb_nat`) out through the VM's default interface. Safe to re-run. |
-| `cleanup_gateway.sh` | Removes the namespaces, bridge, per-client DNS files and the NAT table. Safe to re-run. |
+| `setup_gateway.sh` | Creates project-owned bridge, client namespaces, and veth pairs; the current version does not enable host forwarding or uplink NAT. |
+| `cleanup_gateway.sh` | Removes project-owned lab namespaces, bridge, veths, and per-client DNS files; current setup creates no NAT table. |
 | `limit_client.sh` | `limit_client.sh <1\|2\|3> <down_mbit> [up_mbit]` or `... off`. Download is shaped on the bridge-side veth, upload inside the namespace, both with `tc tbf`. |
 | `install_helper.sh` | Installs a root-owned copy of `limit_client.sh` at `/usr/local/sbin/eb-limit-client` and adds a sudoers rule so the API user can run only that file without a password. |
 
@@ -69,7 +75,7 @@ Runs inside the Ubuntu VM (Ubuntu 26.04 LTS, Python 3.14.4). The VM has two Virt
 
 **Original audit (Windows):** `pytest -q` 35 passed; `npm run build` succeeded with a large-chunk warning; `npm run lint` failed with two effect-related errors.
 
-**Gateway lab (Ubuntu VM), observed results:**
+**Gateway lab (Ubuntu VM), historical results reported in the 2026-11-07 audit and not reproduced in the current execution:**
 
 - **Connectivity:** from a client namespace, ping to the bridge, to another client, to `1.1.1.1` and to `google.com` all succeeded, including after a full cleanup and rebuild of the lab.
 - **Baseline throughput (iperf3, no limits):** about 51-54 Gbit/s for a single client. Three clients in parallel (one server port each) got about 3.8-4.0 Gbit/s each, an even split.

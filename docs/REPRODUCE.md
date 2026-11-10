@@ -1,6 +1,14 @@
 # Reproducing the V0.9 Linux Gateway Lab
 
-This guide rebuilds the lab from the GitHub repository and repeats the checks that produced the results in `REPO_AUDIT.md`. Numbers marked "observed" came from the author's VM; yours will differ a little, especially the multi-Gbit/s figures.
+> **Revision note:** Historical performance figures below were recorded before
+> the current safety changes and were not reproduced in this execution. The
+> current test evidence and capability limitations are in
+> `UBUNTU_TEST_RESULTS.md`. The lab is isolated and does not provide external
+> connectivity through the VM host uplink.
+
+This guide describes the existing lab and its earlier manual checks. Numbers
+marked "observed" are historical results from the author's VM, not current
+acceptance evidence.
 
 The lab exists only inside an Ubuntu VM. Nothing here touches your home router or Windows network settings.
 
@@ -43,22 +51,18 @@ pip install -r requirements.txt
 
 Run every later command from the repository root with the venv active (the prompt starts with `(.venv)`).
 
-## 3. Build the lab
+## 3. Build the isolated lab
 
 ```
-sudo bash scripts/setup_gateway.sh
+sudo bash scripts/setup_gateway.sh 3
+# Or use five clients:
+sudo bash scripts/setup_gateway.sh 5
 ```
 
-Expected output:
-
-```
-Created bridge br-lab (10.50.0.1)
-Created client1 (10.50.0.11)
-Created client2 (10.50.0.12)
-Created client3 (10.50.0.13)
-NAT enabled via enp0s3
-Lab ready.
-```
+The lab creates only project-owned bridge/namespace/veth resources. It does
+not enable forwarding or NAT through the Ubuntu host uplink; client namespaces
+are intentionally isolated from the internet. Run on a dedicated VM after
+checking for name collisions.
 
 Verify:
 
@@ -66,11 +70,10 @@ Verify:
 ip netns list
 sudo ip netns exec client1 ping -c 2 10.50.0.1
 sudo ip netns exec client1 ping -c 2 10.50.0.12
-sudo ip netns exec client1 ping -c 2 1.1.1.1
-sudo ip netns exec client1 ping -c 2 google.com
 ```
 
-All pings should succeed with 0% loss. To prove the scripts rebuild everything from nothing, run `sudo bash scripts/cleanup_gateway.sh`, then `setup_gateway.sh` again, then repeat the last two pings.
+These are local lab checks only. Do not test internet connectivity through the
+host default route as part of this lab.
 
 The lab is lost on every VM reboot. Re-run `setup_gateway.sh` after a restart.
 
@@ -97,10 +100,11 @@ iperf3 -s -p 5202 -D
 iperf3 -s -p 5203 -D
 sudo -v
 for i in 1 2 3; do sudo ip netns exec client$i iperf3 -c 10.50.0.1 -p $((5200+i)) -t 5 > /tmp/client$i.txt & done; wait; tail -n 3 /tmp/client*.txt
-pkill -f "iperf3 -s -p 520[23]"
 ```
 
-Observed: about 3.8-4.0 Gbit/s each, an even split. Note that `pkill` also stops the 5202 server; start it again later when a step needs it.
+Observed historically: about 3.8-4.0 Gbit/s each, an even split. These
+background servers can be left running for later steps. If stopping one, inspect
+its PID and terminate only that exact process.
 
 ## 5. Per-client monitoring (collector)
 
@@ -142,34 +146,39 @@ sudo bash scripts/install_helper.sh
 
 Expected last line: `Installed /usr/local/sbin/eb-limit-client for user <your user>`. **Re-run this command every time `scripts/limit_client.sh` changes**, because the installed file is a copy.
 
-## 8. Run the API
+## 8. Run the authenticated read-only observation agent
 
 ```
-python3 -m py_compile gateway/api.py && echo "syntax ok"
-uvicorn gateway.api:app --host 0.0.0.0 --port 8000
+python3 -m py_compile gateway/observation_api.py && echo "syntax ok"
+export EB_GATEWAY_TOKEN='<shared-random-secret>'
+uvicorn gateway.observation_api:app --host 127.0.0.1 --port 8100
 ```
 
-Leave it running and use a second terminal. This is separate from the original `backend/app` API; do not run both on port 8000.
+The observation agent is a separate, read-only API. It fails closed unless a
+token is configured, and exposes only the documented current-observations
+route. Keep it on loopback or a private VM network; never bind it publicly.
 
 ```
-curl localhost:8000/health
-curl localhost:8000/clients
+curl -H "Authorization: Bearer ${EB_GATEWAY_TOKEN}" \
+  http://127.0.0.1:8100/api/v1/observations/current
 ```
 
-Expected: `{"status":"ok"}` and a JSON list of three clients with `intent` and `limit` fields. The API clears all limits when it starts.
+The older interactive control API in `gateway/api.py` is not the remote
+observation agent and must not be exposed on a public interface. The backend
+uses only the authenticated read-only endpoint.
 
-Apply and remove a limit through the API:
+## 9. Local-only legacy controller demonstration
+
+This section exercises the legacy control API and is separate from the
+authenticated, read-only observation agent in section 8. Start it bound only
+to loopback; do not expose it on a VM, LAN, or public interface:
 
 ```
-curl -X POST localhost:8000/clients/1/limit -H "Content-Type: application/json" -d '{"down_mbps": 10}'
-sudo ip netns exec client1 iperf3 -c 10.50.0.1 -t 5 -R
-curl localhost:8000/clients
-curl -X DELETE localhost:8000/clients/1/limit
+uvicorn gateway.api:app --host 127.0.0.1 --port 8001
 ```
 
-Observed: download about 9.6 Mbit/s, `/clients` lists the limit for client1, and the DELETE returns `"limit":null`. From the host browser you can also open `http://<VM host-only IP>:8000/docs` (verified from the Windows browser by the author).
-
-## 9. Policy tests and live policy run
+The policy commands below use that local API on port 8001. They are not a
+Windows-to-Ubuntu gateway connectivity test. and live policy run
 
 Unit tests:
 
@@ -189,14 +198,14 @@ python3 gateway/watch.py        # in its own terminal: live view
 In another terminal:
 
 ```
-curl -X POST localhost:8000/policy -H "Content-Type: application/json" -d '{"enabled": true, "budget_mbps": 100}'
-curl -X POST localhost:8000/clients/1/intent -H "Content-Type: application/json" -d '{"intent": "streaming"}'
-curl -X POST localhost:8000/clients/2/intent -H "Content-Type: application/json" -d '{"intent": "download"}'
+curl -X POST localhost:8001/policy -H "Content-Type: application/json" -d '{"enabled": true, "budget_mbps": 100}'
+curl -X POST localhost:8001/clients/1/intent -H "Content-Type: application/json" -d '{"intent": "streaming"}'
+curl -X POST localhost:8001/clients/2/intent -H "Content-Type: application/json" -d '{"intent": "download"}'
 sudo -v
 sudo ip netns exec client1 iperf3 -c 10.50.0.1 -p 5202 -R -t 30 > /tmp/c1.txt &
 sudo ip netns exec client2 iperf3 -c 10.50.0.1 -p 5201 -R -t 30 > /tmp/c2.txt &
 wait
-curl -s localhost:8000/policy
+curl -s localhost:8001/policy
 ```
 
 What to expect:
@@ -205,14 +214,14 @@ What to expect:
 - Then the limits settle at about **68 / 17** Mbit/s for client1 (streaming) and client2 (download), and client3 (idle) stays unlimited. The controller shapes at 90% of the 100 Mbit/s budget, reserves a 5 Mbit/s minimum for the idle client, and splits the remaining 85 Mbit/s 4:1 by weight.
 - Observed with the first controller version (which capped every client): client2 capped at 19 and client3 at 5. The expected limits above are for the revised controller, which caps only over-share clients; section 9A exercises it.
 - A download client running at 90% or more of its cap keeps its limit (anti-oscillation rule).
-- After the flows stop, limits should clear within a few seconds. Check with `curl -s localhost:8000/policy`.
+- After the flows stop, limits should clear within a few seconds. Check with `curl -s localhost:8001/policy`.
 
 Swap the intents (client1 `download`, client2 `streaming`) and repeat; the split should flip to about 19 / 76.
 
 To disable the policy and clear every limit:
 
 ```
-curl -X POST localhost:8000/policy -H "Content-Type: application/json" -d '{"enabled": false}'
+curl -X POST localhost:8001/policy -H "Content-Type: application/json" -d '{"enabled": false}'
 ```
 
 ## 9A. Shared-bottleneck experiments
@@ -244,7 +253,7 @@ Observed: streaming throughput 16.2 / 40.4 / 63.2 Mbit/s for no policy / equal /
 **If a run is interrupted,** reset by hand:
 
 ```
-curl -X POST localhost:8000/policy -H "Content-Type: application/json" -d '{"enabled": false}'
+curl -X POST localhost:8001/policy -H "Content-Type: application/json" -d '{"enabled": false}'
 sudo bash scripts/set_bottleneck.sh off
 ```
 
@@ -271,7 +280,11 @@ icacls "$env:USERPROFILE\.ssh\config" /grant:r "${env:USERNAME}:F"
 sudo bash scripts/cleanup_gateway.sh
 ```
 
-This removes the namespaces, the bridge, per-client DNS files and the NAT table, and is safe to run repeatedly. It does not remove the installed helper or the sudoers rule. To remove those too:
+This removes project-marked namespaces, bridge, veths, and per-client DNS
+files; it is intended to be safe to repeat. It does not remove the installed
+helper or sudoers rule. New lab setup does not create NAT or change host
+forwarding. Inspect legacy project state before cleanup if the lab was created
+by an older revision. To remove the helper too:
 
 ```
 sudo rm /usr/local/sbin/eb-limit-client /etc/sudoers.d/experience-budget
@@ -286,10 +299,10 @@ sudo rm /usr/local/sbin/eb-limit-client /etc/sudoers.d/experience-budget
 | `ip netns list` is empty | The VM rebooted. Re-run `setup_gateway.sh`. |
 | API 500 error mentioning `sudo` | Helper not installed or sudoers rule missing. Run `sudo bash scripts/install_helper.sh`. |
 | Limit script change has no effect through the API | Installed copy is stale. Re-run `install_helper.sh`. |
-| `uvicorn` shows a `SyntaxError` | Fix the line it names; check with `python3 -m py_compile gateway/api.py`. |
+| `uvicorn` shows a `SyntaxError` | Fix the line it names; check with `python3 -m py_compile gateway/observation_api.py`. |
 | `sudo poweroff` says the operation is inhibited | The desktop session blocks it. Use `systemctl poweroff -i` or the Ubuntu power menu. |
 | Settings greyed out in VirtualBox | The VM is running or saved. Power it off fully first. |
-| Client pings work but `google.com` fails | DNS files missing. Re-run `setup_gateway.sh`, which writes `/etc/netns/clientN/resolv.conf`. |
+| Client pings work but external sites do not | Expected: the isolated lab intentionally has no host-uplink NAT. |
 
 ## 13. Known limits of these results
 
