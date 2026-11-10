@@ -97,10 +97,15 @@ def build_current_qoe(*, requested_at: datetime | None = None) -> QoECurrentResp
         source="linux_namespace_lab",
         scope="client",
     )
+    # We use at most 5 history points per client.  Fetch 5 × (number of
+    # clients + a small buffer) instead of a flat 1000 to keep Pydantic
+    # validation overhead proportional to the actual client count.
+    client_count = max(len(slots), len(current.observations), 1)
+    history_limit = min(client_count * 5 + 10, 100)
     client_history = build_historical_observations(
         source="linux_namespace_lab",
         scope="client",
-        limit=1000,
+        limit=history_limit,
         order="newest",
     )
     history_by_client: dict[str, list[TelemetryObservation]] = {}
@@ -111,7 +116,7 @@ def build_current_qoe(*, requested_at: datetime | None = None) -> QoECurrentResp
     aggregate = build_historical_observations(
         source="linux_gateway",
         scope="aggregate_gateway",
-        limit=1000,
+        limit=20,
         order="newest",
     )
     aggregates = [item.observation for item in aggregate.observations]
@@ -179,7 +184,7 @@ def build_qoe_history(
         scope="client",
         client_id=client_id,
         end=end,
-        limit=1000,
+        limit=min(limit * 5 + 10, 500),
         order="newest",
         client_history=client_id is not None,
     )
@@ -188,7 +193,7 @@ def build_qoe_history(
         scope="aggregate_gateway",
         start=start,
         end=end,
-        limit=1000,
+        limit=min(limit + 10, 200),
         order="newest",
     )
     aggregates = [item.observation for item in aggregate.observations]

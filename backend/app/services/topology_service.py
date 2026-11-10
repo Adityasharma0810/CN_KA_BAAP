@@ -41,7 +41,7 @@ from backend.app.services.observation_query_service import (
     build_current_observations,
 )
 from backend.app.services.health_service import build_observation_health
-
+from network.telemetry.metrics_store import MetricsStore
 
 _LOGGER = logging.getLogger(__name__)
 _ObservationResult = list[ObservationItem] | None
@@ -98,22 +98,27 @@ class TopologyService:
 
     def gateway_status(self) -> GatewayStatusResponse:
         now = self._now()
-        application = self._application_status()
+        store = self._open_store()
+        application = self._application_status(store)
         host, host_failed = self._load_source(
             ObservationSource.WINDOWS_HOST,
             ObservationScope.AGGREGATE_GATEWAY,
+            store=store,
         )
         hotspot, hotspot_failed = self._load_source(
             ObservationSource.WINDOWS_HOTSPOT,
             ObservationScope.AGGREGATE_HOTSPOT,
+            store=store,
         )
         gateway, gateway_failed = self._load_source(
             ObservationSource.LINUX_GATEWAY,
             ObservationScope.AGGREGATE_GATEWAY,
+            store=store,
         )
         lab, lab_failed = self._load_source(
             ObservationSource.LINUX_NAMESPACE_LAB,
             ObservationScope.CLIENT,
+            store=store,
         )
 
         windows_host = self._source_status(
@@ -151,22 +156,27 @@ class TopologyService:
 
     def network_topology(self) -> TopologyResponse:
         now = self._now()
-        application_status = self._application_status()
+        store = self._open_store()
+        application_status = self._application_status(store)
         host, host_failed = self._load_source(
             ObservationSource.WINDOWS_HOST,
             ObservationScope.AGGREGATE_GATEWAY,
+            store=store,
         )
         hotspot, hotspot_failed = self._load_source(
             ObservationSource.WINDOWS_HOTSPOT,
             ObservationScope.AGGREGATE_HOTSPOT,
+            store=store,
         )
         gateway, gateway_failed = self._load_source(
             ObservationSource.LINUX_GATEWAY,
             ObservationScope.AGGREGATE_GATEWAY,
+            store=store,
         )
         lab, lab_failed = self._load_source(
             ObservationSource.LINUX_NAMESPACE_LAB,
             ObservationScope.CLIENT,
+            store=store,
         )
         clients, registry_failed = self._load_registry(now)
 
@@ -314,16 +324,31 @@ class TopologyService:
             raise ValueError("topology clock must return an aware datetime")
         return now.astimezone(timezone.utc)
 
+    def _open_store(self) -> "MetricsStore | None":
+        """Return a shared MetricsStore for this request, or None if unavailable."""
+        from network.telemetry.metrics_store import MetricsStore as _MS
+        path = self._db_path or database_path()
+        if not path.exists():
+            return None
+        try:
+            return _MS(path)
+        except Exception:
+            _LOGGER.exception("topology could not open MetricsStore")
+            return None
+
     def _load_source(
         self,
         source: ObservationSource,
         scope: ObservationScope,
+        *,
+        store: "MetricsStore | None" = None,
     ) -> tuple[_ObservationResult, bool]:
         try:
             response = build_current_observations(
                 self._db_path,
                 source=source.value,
                 scope=scope.value,
+                _store=store,
             )
         except Exception:
             _LOGGER.exception(
@@ -498,7 +523,7 @@ class TopologyService:
             return status
         return TopologyService._missing_status()
 
-    def _application_status(self) -> SourceStatus:
+    def _application_status(self, store: "MetricsStore | None" = None) -> SourceStatus:
         try:
             health = build_observation_health(self._db_path)
         except Exception:

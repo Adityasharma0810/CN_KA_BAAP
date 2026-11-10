@@ -490,61 +490,105 @@ class MetricsStore:
 
         self.initialize()
 
-    def _connect(self):
+    def _connect(self, *, write: bool = False):
         connection = sqlite3.connect(str(self.db_path), timeout=5.0)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute("PRAGMA busy_timeout = 5000")
+        # WAL mode lets readers proceed concurrently with the writer so the
+        # lab-ingest worker's BEGIN IMMEDIATE write no longer blocks API reads.
+        connection.execute("PRAGMA journal_mode = WAL")
+        # Raise the autocheckpoint threshold so the WAL file is only flushed
+        # back to the main database file every ~2000 pages (≈8 MB) instead of
+        # the default 1000.  This reduces the frequency of checkpoint stalls
+        # that briefly block all connections.
+        connection.execute("PRAGMA wal_autocheckpoint = 2000")
+        # Reads use a short busy_timeout so an API response returns promptly
+        # even in the unlikely event of a checkpoint.  Writes keep a longer
+        # timeout so the ingest worker can retry safely.
+        connection.execute(f"PRAGMA busy_timeout = {'5000' if write else '300'}")
         return connection
 
     def initialize(self):
-        """Create the legacy table, then apply pending schema migrations."""
+        """Create the legacy table, then apply pending schema migrations.
 
-        connection = self._connect()
+        The legacy table creation uses a read probe first so that the common
+        path (table already exists) avoids acquiring a write lock.
+        """
 
+        # Probe whether the legacy table already exists with a read connection.
         try:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS network_samples (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    recorded_at TEXT NOT NULL,
-                    interface_label TEXT NOT NULL,
-                    download_mbps REAL,
-                    upload_mbps REAL,
-                    adapter_up INTEGER,
-                    internet_reachable INTEGER,
-                    probe_target TEXT,
-                    probes_sent INTEGER,
-                    probes_received INTEGER,
-                    packet_loss_percent REAL,
-                    rtt_min_ms REAL,
-                    rtt_avg_ms REAL,
-                    rtt_max_ms REAL,
-                    rtt_jitter_avg_ms REAL
-                )
-                """
-            )
-
-            connection.execute(
-                """
-                CREATE INDEX IF NOT EXISTS
-                idx_network_samples_recorded_at
-                ON network_samples(recorded_at)
-                """
-            )
-
-            connection.commit()
-
+            probe = self._connect()
         except sqlite3.DatabaseError as error:
-            connection.rollback()
             if _is_corrupt_database_error(error):
                 raise CorruptDatabaseError(
                     "database is corrupt or unreadable"
                 ) from error
             raise StorageError("database initialization failed") from error
 
+        try:
+            row = probe.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='network_samples'"
+            ).fetchone()
+            table_exists = row is not None
+        except sqlite3.DatabaseError as error:
+            table_exists = False
         finally:
-            connection.close()
+            probe.close()
+
+        if not table_exists:
+            # Only acquire a write lock when the table doesn't yet exist.
+            try:
+                connection = self._connect(write=True)
+            except sqlite3.DatabaseError as error:
+                if _is_corrupt_database_error(error):
+                    raise CorruptDatabaseError(
+                        "database is corrupt or unreadable"
+                    ) from error
+                raise StorageError("database initialization failed") from error
+
+            try:
+                connection.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS network_samples (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        recorded_at TEXT NOT NULL,
+                        interface_label TEXT NOT NULL,
+                        download_mbps REAL,
+                        upload_mbps REAL,
+                        adapter_up INTEGER,
+                        internet_reachable INTEGER,
+                        probe_target TEXT,
+                        probes_sent INTEGER,
+                        probes_received INTEGER,
+                        packet_loss_percent REAL,
+                        rtt_min_ms REAL,
+                        rtt_avg_ms REAL,
+                        rtt_max_ms REAL,
+                        rtt_jitter_avg_ms REAL
+                    )
+                    """
+                )
+
+                connection.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS
+                    idx_network_samples_recorded_at
+                    ON network_samples(recorded_at)
+                    """
+                )
+
+                connection.commit()
+
+            except sqlite3.DatabaseError as error:
+                connection.rollback()
+                if _is_corrupt_database_error(error):
+                    raise CorruptDatabaseError(
+                        "database is corrupt or unreadable"
+                    ) from error
+                raise StorageError("database initialization failed") from error
+
+            finally:
+                connection.close()
 
         self.apply_migrations()
 
@@ -563,9 +607,47 @@ class MetricsStore:
     def apply_migrations(self):
         """Apply pending migrations in one transaction, or roll back fully."""
 
-        connection = self._connect()
+        # First check the schema version with a cheap read-only connection so
+        # we avoid acquiring a write lock on every MetricsStore instantiation.
+        try:
+            read_conn = self._connect()
+        except sqlite3.DatabaseError as error:
+            if _is_corrupt_database_error(error):
+                raise CorruptDatabaseError(
+                    "database is corrupt or unreadable"
+                ) from error
+            raise StorageError("database migration could not run") from error
 
         try:
+            current = int(read_conn.execute("PRAGMA user_version").fetchone()[0])
+        except sqlite3.DatabaseError as error:
+            read_conn.close()
+            if _is_corrupt_database_error(error):
+                raise CorruptDatabaseError(
+                    "database is corrupt or unreadable"
+                ) from error
+            raise StorageError("database migration could not run") from error
+        finally:
+            read_conn.close()
+
+        if current > SCHEMA_VERSION:
+            raise MigrationError("database schema is newer than this application")
+
+        if current == SCHEMA_VERSION:
+            return current
+
+        # Only acquire the write lock when a migration is actually needed.
+        try:
+            connection = self._connect(write=True)
+        except sqlite3.DatabaseError as error:
+            if _is_corrupt_database_error(error):
+                raise CorruptDatabaseError(
+                    "database is corrupt or unreadable"
+                ) from error
+            raise StorageError("database migration could not run") from error
+
+        try:
+            # Re-check inside the write lock to guard against concurrent migration.
             current = int(connection.execute("PRAGMA user_version").fetchone()[0])
 
             if current > SCHEMA_VERSION:
@@ -723,8 +805,7 @@ class MetricsStore:
         if first_seen_at is None and last_seen_at is not None:
             first_seen_at = last_seen_at
 
-        connection = self._connect()
-
+        connection = self._connect(write=True)
         try:
             connection.execute("BEGIN IMMEDIATE")
             existing = connection.execute(
@@ -1075,7 +1156,7 @@ class MetricsStore:
         values = [self._observation_values(item) for item in items]
         client_ids = {row[7] for row in values if row[7] is not None}
 
-        connection = self._connect()
+        connection = self._connect(write=True)
 
         try:
             connection.execute("BEGIN IMMEDIATE")
@@ -1589,7 +1670,7 @@ class MetricsStore:
 
         values = tuple(row[column] for column in COLUMNS)
 
-        connection = self._connect()
+        connection = self._connect(write=True)
 
         try:
             connection.execute("BEGIN IMMEDIATE")

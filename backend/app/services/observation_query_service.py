@@ -325,8 +325,14 @@ def build_current_observations(
     scope: str | None = None,
     environment: str | None = None,
     client_id: str | None = None,
+    _store: "MetricsStore | None" = None,
 ) -> CurrentObservationsResponse:
-    """Return the newest observation per source or per anonymous client."""
+    """Return the newest observation per source or per anonymous client.
+
+    Pass ``_store`` to reuse an already-constructed MetricsStore and avoid
+    the connection + schema-check overhead for every sub-call within one
+    request (e.g. the topology service calls this four times).
+    """
 
     now = utc_now()
     source_value = _value(source)
@@ -351,11 +357,11 @@ def build_current_observations(
         raise InvalidFilterError("invalid_filter") from error
 
     path = db_path or database_path()
-    if not path.exists():
+    if _store is None and not path.exists():
         return _empty_response(now, filters)
 
     try:
-        store = MetricsStore(path)
+        store = _store if _store is not None else MetricsStore(path)
         rows = _query_rows(
             store,
             source=source_value,

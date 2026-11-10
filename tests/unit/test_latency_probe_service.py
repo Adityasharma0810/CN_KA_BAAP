@@ -12,6 +12,7 @@ import pytest
 from backend.app.services.latency_probe_service import (
     LatencyProbeService,
     _ProbeSample,
+    _PROBE_TIMEOUT_SECONDS,
     parse_probe_output,
 )
 
@@ -96,7 +97,7 @@ async def test_probe_default_enablement_requires_linux_and_available_helper(
         platform_name="linux",
     )
     enabled.start()
-    await asyncio.sleep(0)
+    await asyncio.sleep(0.1)
     assert enabled.enabled is True
     assert enabled.state == "running"
     await enabled.stop()
@@ -125,16 +126,26 @@ async def test_probe_cache_is_fresh_at_15_seconds_and_stale_afterward():
 
 
 @run_async
-async def test_probes_run_sequentially_and_failed_result_replaces_cache():
+async def test_probes_run_concurrently_and_failed_result_replaces_cache():
+    """Probes for multiple slots must run concurrently, not sequentially.
+
+    The updated design runs one probe per slot in a thread pool so that a
+    slow or unreachable client does not delay the others.  The maximum
+    concurrency observed should therefore be > 1 when the inventory has
+    multiple slots.
+    """
     active = 0
     maximum_active = 0
     guard = threading.Lock()
+    barrier = threading.Barrier(3)  # three slots in FakeAccounting
+
     def runner(*_args, **_kwargs):
         nonlocal active, maximum_active
         with guard:
             active += 1
             maximum_active = max(maximum_active, active)
-        time.sleep(0.005)
+        # Wait until all three probes are in flight before any returns.
+        barrier.wait(timeout=2)
         with guard:
             active -= 1
         return completed("fail no_reply\n", returncode=1)
@@ -149,7 +160,8 @@ async def test_probes_run_sequentially_and_failed_result_replaces_cache():
 
     await service.probe_once()
 
-    assert maximum_active == 1
+    # All three probes must have run concurrently.
+    assert maximum_active == 3
     assert service.metrics_for_slot(1, NOW) is None
     assert service.last_error_code == "no_reply"
     assert service.state == "failing"
@@ -177,6 +189,9 @@ async def test_probe_worker_backoff_and_shutdown(monkeypatch):
         interval_seconds=5,
     )
     service.start()
+    # Allow the async startup coroutine (_async_start) to run to completion
+    # before we assert that the probe task has been created.
+    await asyncio.sleep(0.1)
     assert service._task is not None
     with pytest.raises(asyncio.CancelledError):
         await service._task
@@ -222,7 +237,7 @@ def test_probe_commands_use_fixed_helper_and_validated_slot():
         "probe",
         "3",
     ]
-    assert commands[0][1]["timeout"] == 6
+    assert commands[0][1]["timeout"] == _PROBE_TIMEOUT_SECONDS
     assert "shell" not in commands[0][1]
 
 
@@ -262,3 +277,87 @@ def test_helper_scripts_parse_and_reject_bad_inputs_without_execution():
         assert result.returncode != 0
         assert result.stdout == "fail parse_error\n"
         assert result.stderr == ""
+
+
+# ---------------------------------------------------------------------------
+# Regression: slow / failing probes must not block GET endpoints or each other
+# ---------------------------------------------------------------------------
+
+@run_async
+async def test_slow_probe_does_not_delay_others_past_timeout():
+    """A probe that takes longer than probe_timeout_seconds must not delay
+    the other slots by more than the hard timeout.
+
+    Each probe sleeps for SLOW_PROBE_MS.  With concurrent execution the total
+    wall-clock time for all three slots should be close to one slot's time,
+    not three times that.
+    """
+    import time as _time
+
+    SLOW_PROBE_MS = 0.3  # 300 ms per probe
+    HARD_TIMEOUT = 1.0   # per-client timeout passed to LatencyProbeService
+
+    def slow_runner(*_args, **_kwargs):
+        _time.sleep(SLOW_PROBE_MS)
+        return completed("ok 5 5 1.0 0.1\n")
+
+    service = LatencyProbeService(
+        accounting=FakeAccounting(),
+        runner=slow_runner,
+        clock=lambda: NOW,
+        platform_name="linux",
+        probe_timeout_seconds=HARD_TIMEOUT,
+    )
+
+    t0 = _time.monotonic()
+    await service.probe_once()
+    elapsed = _time.monotonic() - t0
+
+    # With 3 concurrent probes each taking SLOW_PROBE_MS, the cycle should
+    # finish in < 2 × SLOW_PROBE_MS, not 3 × SLOW_PROBE_MS.
+    assert elapsed < SLOW_PROBE_MS * 2, (
+        f"probe cycle took {elapsed:.3f}s — slots are not running concurrently"
+    )
+    assert service.last_error_code is None
+    assert service.state == "running"
+
+
+@run_async
+async def test_failing_probe_for_one_slot_does_not_exceed_hard_timeout():
+    """A single failing / timing-out probe must not block others past the
+    hard per-probe timeout, and must not prevent the good probes from recording
+    their results.
+    """
+    import time as _time
+
+    HARD_TIMEOUT = 0.5  # seconds
+
+    def flaky_runner(argv, **_kwargs):
+        slot = int(argv[-1])
+        if slot == 2:
+            # This slot exceeds the subprocess timeout; subprocess.run raises
+            # TimeoutExpired which _probe_one converts to "probe_timeout".
+            raise subprocess.TimeoutExpired(cmd=argv, timeout=HARD_TIMEOUT)
+        return completed("ok 5 5 1.0 0.1\n")
+
+    service = LatencyProbeService(
+        accounting=FakeAccounting(),
+        runner=flaky_runner,
+        clock=lambda: NOW,
+        platform_name="linux",
+        probe_timeout_seconds=HARD_TIMEOUT,
+    )
+
+    t0 = _time.monotonic()
+    await service.probe_once()
+    elapsed = _time.monotonic() - t0
+
+    # The whole cycle must finish within a small multiple of the timeout, not
+    # N_slots × timeout.
+    assert elapsed < HARD_TIMEOUT * 2.5, (
+        f"probe cycle took {elapsed:.3f}s — failing slot is blocking others"
+    )
+    # Slots 1 and 3 should have good samples; slot 2 should have an error.
+    assert service.metrics_for_slot(1, NOW) is not None
+    assert service.metrics_for_slot(3, NOW) is not None
+    assert service._samples[2].error_code == "probe_timeout"

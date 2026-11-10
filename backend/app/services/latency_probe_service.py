@@ -26,6 +26,9 @@ _HELPER_PATH = "/usr/local/libexec/eb/eb-priv"
 _SUDO_PATH = "/usr/bin/sudo"
 _MAX_BACKOFF_SECONDS = 30.0
 _MAX_OUTPUT_CHARS = 256
+# Hard per-client probe timeout used by _probe_one.  A single slow or
+# unreachable client must not delay the others beyond this budget.
+_PROBE_TIMEOUT_SECONDS = 2.0
 _RESULT_PATTERN = re.compile(
     r"ok 5 ([0-5]) ([0-9]+(?:\.[0-9]+)?) ([0-9]+(?:\.[0-9]+)?)\Z"
 )
@@ -108,7 +111,7 @@ Runner = Callable[..., subprocess.CompletedProcess]
 
 
 class LatencyProbeService:
-    """Probe configured slots sequentially and expose only safe metric values."""
+    """Probe configured slots concurrently and expose only safe metric values."""
 
     def __init__(
         self,
@@ -120,6 +123,7 @@ class LatencyProbeService:
         platform_name: str | None = None,
         interval_seconds: float | None = None,
         helper_path: str = _HELPER_PATH,
+        probe_timeout_seconds: float = _PROBE_TIMEOUT_SECONDS,
     ):
         self.accounting = accounting
         self.clock = clock
@@ -134,6 +138,7 @@ class LatencyProbeService:
         if self.interval_seconds < 2:
             raise ValueError("probe interval must be at least two seconds")
         self.helper_path = helper_path
+        self.probe_timeout_seconds = probe_timeout_seconds
         self.enabled = False
         self.last_success_at: datetime | None = None
         self.last_error_code: str | None = None
@@ -154,7 +159,13 @@ class LatencyProbeService:
         return self._task is not None and not self._task.done()
 
     def start(self) -> None:
-        """Enable only on Linux when the restricted helper can be executed."""
+        """Enable only on Linux when the restricted helper can be executed.
+
+        When called from within a running event loop, the blocking helper check
+        is offloaded to a thread so the event loop is never stalled.  When
+        called outside a loop (e.g. from synchronous test code) the check runs
+        synchronously on the calling thread, preserving the original behaviour.
+        """
 
         if self.running:
             return
@@ -164,6 +175,41 @@ class LatencyProbeService:
             self._state = "disabled"
             self.last_error_code = None
             return
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop is not None:
+            # Offload the blocking subprocess check; the task will be created
+            # once the check completes.
+            loop.create_task(
+                self._async_start(),
+                name="latency-probe-startup",
+            )
+        else:
+            self._sync_start()
+
+    async def _async_start(self) -> None:
+        """Check helper availability off the event loop, then start the task."""
+
+        try:
+            helper_available = await asyncio.to_thread(self._check_helper)
+        except Exception:
+            _LOGGER.exception("latency probe helper availability check failed")
+            helper_available = False
+
+        if not helper_available:
+            self.enabled = False
+            self._state = "helper_missing"
+            self.last_error_code = "helper_missing"
+            return
+
+        self._launch_task()
+
+    def _sync_start(self) -> None:
+        """Synchronous fallback used when there is no running event loop."""
 
         try:
             helper_available = self._check_helper()
@@ -177,12 +223,17 @@ class LatencyProbeService:
             self.last_error_code = "helper_missing"
             return
 
+        self._launch_task()
+
+    def _launch_task(self) -> None:
         self.enabled = True
         self.last_error_code = None
         self._state = "running"
         try:
+            # One worker thread per inventory slot so probes run concurrently.
+            slot_count = max(1, len(tuple(self.accounting.inventory)))
             self._executor = ThreadPoolExecutor(
-                max_workers=1,
+                max_workers=slot_count,
                 thread_name_prefix="latency-probe",
             )
             self._task = asyncio.create_task(
@@ -213,28 +264,104 @@ class LatencyProbeService:
             self._state = "disabled"
 
     async def probe_once(self) -> None:
-        """Probe all currently configured lab slots serially."""
+        """Probe all currently configured lab slots concurrently.
+
+        Each slot gets its own executor future so a slow or unreachable client
+        does not delay the others past the per-probe timeout.  The asyncio lock
+        ensures that at most one cycle runs at a time.
+        """
 
         async with self._cycle_lock:
             loop = asyncio.get_running_loop()
             executor = self._executor
+            own_executor = False
             if executor is None:
+                slot_count = max(1, len(tuple(self.accounting.inventory)))
                 executor = ThreadPoolExecutor(
-                    max_workers=1,
+                    max_workers=slot_count,
                     thread_name_prefix="latency-probe-test",
                 )
-                temporary_executor = True
-            else:
-                temporary_executor = False
-            cycle = loop.run_in_executor(executor, self._probe_all)
+                own_executor = True
+
             try:
-                await asyncio.shield(cycle)
+                await asyncio.shield(
+                    asyncio.ensure_future(
+                        self._probe_all_async(loop, executor)
+                    )
+                )
             except asyncio.CancelledError:
-                await asyncio.shield(cycle)
                 raise
             finally:
-                if temporary_executor:
+                if own_executor:
                     executor.shutdown(wait=True, cancel_futures=True)
+
+    async def _probe_all_async(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        executor: ThreadPoolExecutor,
+    ) -> None:
+        """Fan out one asyncio future per slot and collect results concurrently."""
+
+        try:
+            inventory: Sequence = tuple(self.accounting.inventory)
+        except Exception:
+            _LOGGER.exception("latency probe inventory unavailable")
+            self._record_global_failure("probe_failed")
+            return
+
+        if not inventory:
+            self.last_error_code = "probe_failed"
+            self._state = "failing"
+            return
+
+        now = self._now()
+
+        # Submit all probes concurrently; each is bounded by _probe_one's
+        # subprocess timeout so a hung slot doesn't outlast probe_timeout_seconds.
+        slots = [client.client_number for client in inventory]
+        raw_futures = [
+            loop.run_in_executor(executor, self._probe_one, slot, now)
+            for slot in slots
+        ]
+
+        # Wait for all probes concurrently with individual timeout guards.
+        async def _guarded(fut, slot):
+            try:
+                return slot, await asyncio.wait_for(
+                    asyncio.shield(fut), timeout=self.probe_timeout_seconds + 0.5
+                )
+            except asyncio.TimeoutError:
+                _LOGGER.warning("latency probe slot %d timed out waiting for result", slot)
+                return slot, _ProbeSample(now, None, None, None, None, "probe_timeout")
+            except Exception:
+                _LOGGER.exception("latency probe slot %d raised unexpectedly", slot)
+                return slot, _ProbeSample(now, None, None, None, None, "probe_failed")
+
+        gathered = await asyncio.gather(
+            *[_guarded(fut, slot) for fut, slot in zip(raw_futures, slots)]
+        )
+        results: dict[int, _ProbeSample] = dict(gathered)
+
+        # Publish all new samples atomically so readers see a consistent snapshot.
+        with self._samples_lock:
+            for slot, sample in results.items():
+                self._samples[slot] = sample
+
+        first_error: str | None = None
+        successes = 0
+        for slot, sample in results.items():
+            if sample.error_code is None:
+                successes += 1
+                self.last_success_at = sample.observed_at
+            elif first_error is None:
+                first_error = sample.error_code
+
+        if first_error is not None:
+            self.last_error_code = first_error
+            self._state = "failing"
+        elif successes == len(inventory):
+            self.last_error_code = None
+            self._state = "running"
 
     async def _run(self) -> None:
         try:
@@ -285,34 +412,6 @@ class LatencyProbeService:
             in ("no_namespace", "timeout", "no_reply", "parse_error")
         )
 
-    def _probe_all(self) -> None:
-        first_error: str | None = None
-        successes = 0
-        try:
-            inventory: Sequence = tuple(self.accounting.inventory)
-        except Exception:
-            _LOGGER.exception("latency probe inventory unavailable")
-            self._record_global_failure("probe_failed")
-            return
-
-        for client in inventory:
-            slot = client.client_number
-            sample = self._probe_one(slot, self._now())
-            with self._samples_lock:
-                self._samples[slot] = sample
-            if sample.error_code is None:
-                successes += 1
-                self.last_success_at = sample.observed_at
-            elif first_error is None:
-                first_error = sample.error_code
-
-        if first_error is not None or not inventory:
-            self.last_error_code = first_error or "probe_failed"
-            self._state = "failing"
-        elif successes == len(inventory):
-            self.last_error_code = None
-            self._state = "running"
-
     def _probe_one(self, slot: int, now: datetime) -> _ProbeSample:
         if isinstance(slot, bool) or not isinstance(slot, int) or not 1 <= slot <= 9:
             return _ProbeSample(now, None, None, None, None, "no_namespace")
@@ -328,7 +427,7 @@ class LatencyProbeService:
                 command,
                 capture_output=True,
                 text=True,
-                timeout=6,
+                timeout=self.probe_timeout_seconds,
                 check=False,
             )
         except subprocess.TimeoutExpired:
