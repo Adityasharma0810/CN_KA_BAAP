@@ -30,7 +30,11 @@ def observation():
 
 
 def response_payload():
-    return {"version": 1, "observed_at": NOW.isoformat(), "observations": [observation()]}
+    return {
+        "version": 1,
+        "observed_at": NOW.isoformat(),
+        "observations": [observation()],
+    }
 
 
 class FakeResponse:
@@ -56,16 +60,16 @@ class FakeClient:
         pass
 
 
-def transport(fake_client):
+def transport(fake_client, *, token="secret-token"):
     return GatewayTransport(
         "http://gateway.example:8100",
-        token="secret-token",
+        token=token,
         client_factory=lambda **_: fake_client,
         max_attempts=1,
     )
 
 
-def test_fetch_validates_version_and_returns_observations():
+def test_fetch_validates_version_and_sends_bearer_authentication():
     client = FakeClient(FakeResponse(payload=response_payload()))
     result = transport(client).fetch_current()
 
@@ -76,6 +80,13 @@ def test_fetch_validates_version_and_returns_observations():
     assert client.calls[0][1]["timeout"] == 2.0
 
 
+def test_transport_does_not_send_an_authorization_header_without_a_token():
+    client = FakeClient(FakeResponse(payload=response_payload()))
+    transport(client, token=None).fetch_current()
+
+    assert "Authorization" not in client.calls[0][1]["headers"]
+
+
 def test_authentication_failure_is_not_retried():
     client = FakeClient(FakeResponse(status_code=401, payload={}))
     with pytest.raises(GatewayAuthenticationError):
@@ -84,7 +95,27 @@ def test_authentication_failure_is_not_retried():
 
 
 def test_malformed_payload_is_rejected():
-    client = FakeClient(FakeResponse(payload={"version": 1, "observations": [{"bad": True}]}))
+    client = FakeClient(
+        FakeResponse(payload={"version": 1, "observations": [{"bad": True}]})
+    )
+    with pytest.raises(GatewaySchemaError):
+        transport(client).fetch_current()
+
+
+def test_duplicate_client_observations_are_rejected():
+    payload = response_payload()
+    payload["observations"].append(observation())
+    client = FakeClient(FakeResponse(payload=payload))
+
+    with pytest.raises(GatewaySchemaError):
+        transport(client).fetch_current()
+
+
+def test_namespace_observation_cannot_claim_physical_environment():
+    payload = response_payload()
+    payload["observations"][0]["metadata"]["environment"] = "physical_host"
+    client = FakeClient(FakeResponse(payload=payload))
+
     with pytest.raises(GatewaySchemaError):
         transport(client).fetch_current()
 

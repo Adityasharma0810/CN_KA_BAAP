@@ -353,6 +353,30 @@ _OBSERVATION_INSERT = """
     )
 """
 
+_OBSERVATION_VALUE_COLUMNS = (
+    "observed_at",
+    "source",
+    "scope",
+    "environment",
+    "quality",
+    "stale",
+    "collector_error",
+    "client_id",
+    "download_bytes",
+    "upload_bytes",
+    "download_packets",
+    "upload_packets",
+    "download_mbps",
+    "upload_mbps",
+    "rtt_ms",
+    "packet_loss_percent",
+    "rtt_variation_ms",
+    "queue_depth_bytes",
+    "queue_delay_ms",
+    "legacy_sample_id",
+    "legacy_recorded_at",
+)
+
 
 def _enum_value(value):
     return value.value if hasattr(value, "value") else value
@@ -1139,6 +1163,13 @@ class MetricsStore:
 
     def save_observations(self, observations):
         """Validate and insert a bounded batch atomically."""
+        return self._save_observations(observations, idempotent=False)
+
+    def save_observations_idempotently(self, observations):
+        """Persist a bounded batch once and reject out-of-order replay."""
+        return self._save_observations(observations, idempotent=True)
+
+    def _save_observations(self, observations, *, idempotent):
 
         if isinstance(observations, (str, bytes, dict)):
             raise TypeError("observations must be an iterable of observations")
@@ -1163,11 +1194,54 @@ class MetricsStore:
             self._require_clients(connection, client_ids)
 
             ids = []
+            inserted_values = []
             for row in values:
+                if idempotent:
+                    existing = connection.execute(
+                        """
+                        SELECT id, observed_at, source, scope, environment,
+                               quality, stale, collector_error, client_id,
+                               download_bytes, upload_bytes, download_packets,
+                               upload_packets, download_mbps, upload_mbps,
+                               rtt_ms, packet_loss_percent, rtt_variation_ms,
+                               queue_depth_bytes, queue_delay_ms,
+                               legacy_sample_id, legacy_recorded_at
+                        FROM telemetry_observations
+                        WHERE observed_at = ? AND source = ? AND scope = ?
+                          AND environment = ? AND client_id IS ?
+                        LIMIT 1
+                        """,
+                        (row[0], row[1], row[2], row[3], row[7]),
+                    ).fetchone()
+                    if existing is not None:
+                        if tuple(
+                            existing[column]
+                            for column in _OBSERVATION_VALUE_COLUMNS
+                        ) != row:
+                            raise ValueError(
+                                "observation retry conflicts with stored sample"
+                            )
+                        ids.append(existing["id"])
+                        continue
+
+                    latest = connection.execute(
+                        """
+                        SELECT observed_at FROM telemetry_observations
+                        WHERE source = ? AND scope = ? AND environment = ?
+                          AND client_id IS ?
+                        ORDER BY observed_at DESC, id DESC
+                        LIMIT 1
+                        """,
+                        (row[1], row[2], row[3], row[7]),
+                    ).fetchone()
+                    if latest is not None and row[0] < latest["observed_at"]:
+                        raise ValueError("observation batch is out of order")
+
                 cursor = connection.execute(_OBSERVATION_INSERT, row)
                 ids.append(cursor.lastrowid)
+                inserted_values.append(row)
 
-            self._touch_clients(connection, values)
+            self._touch_clients(connection, inserted_values)
             connection.commit()
             return ids
 

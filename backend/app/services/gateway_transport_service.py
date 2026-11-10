@@ -7,7 +7,14 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from backend.app.models.schemas import ObservationSource, TelemetryObservation
 
@@ -65,6 +72,28 @@ class GatewayObservationResponse(BaseModel):
             raise ValueError("gateway response contains an invalid observation source")
         return value
 
+    @model_validator(mode="after")
+    def validate_observation_context(self) -> "GatewayObservationResponse":
+        identities: set[tuple[str, str, str | None]] = set()
+        for observation in self.observations:
+            metadata = observation.metadata
+            if metadata.observed_at > self.observed_at:
+                raise ValueError("observation timestamp follows response timestamp")
+            if (
+                metadata.source == ObservationSource.LINUX_NAMESPACE_LAB
+                and metadata.environment != "simulated_lab"
+            ):
+                raise ValueError("namespace observations must be labelled simulated")
+            key = (
+                str(metadata.source),
+                str(metadata.scope),
+                metadata.client_id,
+            )
+            if key in identities:
+                raise ValueError("gateway response contains duplicate observations")
+            identities.add(key)
+        return self
+
 
 ClientFactory = Callable[..., Any]
 
@@ -103,7 +132,7 @@ class GatewayTransport:
     def fetch_current(self) -> GatewayObservationResponse:
         headers = {"Accept": "application/json"}
         if self.token:
-            headers["Authorization"] = f"Bearer {self.token}"
+            headers["Authorization"] = "Bearer " + self.token
         for attempt in range(self.max_attempts):
             client = self.client_factory(timeout=self.timeout_seconds)
             try:

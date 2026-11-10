@@ -80,3 +80,71 @@ def test_transport_failure_reports_disconnected_without_private_error(tmp_path: 
     assert result.error_code == "gateway_timeout"
     assert service.state == "disconnected"
     assert service.last_success_at is None
+
+
+def test_repeated_submission_is_persisted_once(tmp_path: Path):
+    transport = FakeTransport(result=response())
+    service = GatewayIngestService(
+        transport=transport,
+        db_path_provider=lambda: tmp_path / "gateway.sqlite3",
+        clock=lambda: NOW,
+    )
+
+    first = asyncio.run(service.collect_once())
+    second = asyncio.run(service.collect_once())
+    stored = MetricsStore(tmp_path / "gateway.sqlite3").get_history_by_source(
+        "linux_namespace_lab", scope="client", order="oldest"
+    )
+
+    assert first.error_code is None
+    assert second.error_code is None
+    assert len(stored) == 1
+    assert MetricsStore(tmp_path / "gateway.sqlite3").get_client(
+        "client-abcdefgh"
+    ).display_label == "Client 01"
+
+
+def test_conflicting_retry_is_rejected_without_overwriting_history(tmp_path: Path):
+    transport = FakeTransport(result=response())
+    service = GatewayIngestService(
+        transport=transport,
+        db_path_provider=lambda: tmp_path / "gateway.sqlite3",
+        clock=lambda: NOW,
+    )
+    asyncio.run(service.collect_once())
+
+    conflict = response()
+    conflict.observations[0].download_mbps = 20.0
+    transport.result = conflict
+    result = asyncio.run(service.collect_once())
+    stored = MetricsStore(tmp_path / "gateway.sqlite3").get_history_by_source(
+        "linux_namespace_lab", scope="client", order="oldest"
+    )
+
+    assert result.error_code == "gateway_observation_conflict"
+    assert service.state == "disconnected"
+    assert len(stored) == 1
+    assert stored[0].observation.download_mbps == 12.5
+
+
+def test_out_of_order_submission_is_rejected_without_overwriting_history(tmp_path: Path):
+    transport = FakeTransport(result=response())
+    service = GatewayIngestService(
+        transport=transport,
+        db_path_provider=lambda: tmp_path / "gateway.sqlite3",
+        clock=lambda: NOW,
+    )
+    asyncio.run(service.collect_once())
+
+    older_time = NOW.replace(hour=11, minute=59)
+    older = response().model_copy(update={"observed_at": older_time})
+    older.observations[0].metadata.observed_at = older_time
+    transport.result = older
+    result = asyncio.run(service.collect_once())
+    stored = MetricsStore(tmp_path / "gateway.sqlite3").get_history_by_source(
+        "linux_namespace_lab", scope="client", order="oldest"
+    )
+
+    assert result.error_code == "gateway_observation_out_of_order"
+    assert service.state == "disconnected"
+    assert len(stored) == 1

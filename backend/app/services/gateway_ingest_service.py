@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 import os
 from dataclasses import dataclass
@@ -28,9 +29,11 @@ _SAFE_ERRORS = {
     "gateway_service_unavailable",
     "gateway_timeout",
     "gateway_unreachable",
+    "gateway_observation_conflict",
 }
 
 _MAX_BACKOFF_SECONDS = 30.0
+_LOGGER = logging.getLogger(__name__)
 
 
 def utc_now() -> datetime:
@@ -126,8 +129,19 @@ class GatewayIngestService:
                     error.code if error.code in _SAFE_ERRORS else "gateway_unreachable"
                 )
                 return GatewayIngestResult(self.last_error_code, self.last_success_at)
+            except ValueError as error:
+                message = str(error)
+                self.last_error_code = {
+                    "observation batch is out of order":
+                        "gateway_observation_out_of_order",
+                    "observation retry conflicts with stored sample":
+                        "gateway_observation_conflict",
+                }.get(message, "gateway_persistence_failed")
+                _LOGGER.warning("gateway ingestion failed: %s", self.last_error_code)
+                return GatewayIngestResult(self.last_error_code, self.last_success_at)
             except Exception:
                 self.last_error_code = "gateway_persistence_failed"
+                _LOGGER.error("gateway ingestion failed: %s", self.last_error_code)
                 return GatewayIngestResult(self.last_error_code, self.last_success_at)
 
             observed_at = response.observed_at.astimezone(timezone.utc)
@@ -156,12 +170,37 @@ class GatewayIngestService:
 
     def _persist(self, response: GatewayObservationResponse) -> None:
         store = MetricsStore(Path(self.db_path_provider()))
+        known_clients = {
+            client.client_id: client for client in store.list_clients()
+        }
+        next_label = max(
+            (
+                int(client.display_label.split()[1])
+                for client in known_clients.values()
+            ),
+            default=0,
+        ) + 1
+        pending_clients: dict[str, ObservationEnvironment] = {}
         for observation in response.observations:
             client_id = observation.metadata.client_id
             if client_id is not None:
-                store.register_client(
-                    client_id,
-                    "Client 01",
-                    environment=ObservationEnvironment.SIMULATED_LAB,
+                pending_clients[client_id] = ObservationEnvironment(
+                    observation.metadata.environment
                 )
-        store.save_observations(response.observations)
+
+        for client_id, environment in pending_clients.items():
+            existing = known_clients.get(client_id)
+            if existing is None:
+                label = f"Client {next_label:02d}"
+                next_label += 1
+                slot = None
+            else:
+                label = existing.display_label
+                slot = existing.simulated_lab_slot
+            store.register_client(
+                client_id,
+                label,
+                environment=environment,
+                simulated_lab_slot=slot,
+            )
+        store.save_observations_idempotently(response.observations)
