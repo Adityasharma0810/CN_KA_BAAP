@@ -1,0 +1,215 @@
+:root {
+  /* Experience Budget Design Tokens */
+
+  /* === Core Palette === */
+
+  /* Application background - warm beige / greige */
+  --color-bg-app: #E8E1D5;
+
+  /* Card backgrounds */
+  --color-bg-card-primary: #F8F7F3;    /* Soft ivory */
+  --color-bg-card-secondary: #F0EDE5;   /* Warm off-white */
+
+  /* Text colors */
+  --color-text-primary: #242A32;        /* Deep charcoal */
+  --color-text-secondary: #73777D;      /* Muted grey */
+
+  /* Dark surfaces for badges and navigation */
+  --color-surface-dark-primary: #172536;  /* Deep navy */
+  --color-surface-dark-secondary: #252D37; /* Charcoal */
+
+  /* Borders */
+  --color-border-subtle: #D9D3C8;       /* Soft grey-beige */
+  --color-border-strong: #C4BCB0;       /* Slightly stronger */
+
+  /* Accent colors - restrained */
+  --color-accent: #587FA6;              /* Restrained blue */
+  --color-accent-hover: #4A6D8F;
+  --color-accent-light: #E8EDF3;
+
+  /* Status colors - muted, professional */
+  --color-status-success: #39765E;      /* Muted green */
+  --color-status-success-bg: #E8F4EC;
+  --color-status-success-border: #C8E6D5;
+
+  --color-status-warning: #A97627;      /* Muted amber */
+  --color-status-warning-bg: #FDF6E8;
+  --color-status-warning-border: #F5E8C8;
+
+  --color-status-failure: #A64D4D;      /* Muted red */
+  --color-status-failure-bg: #FDECEC;
+  --color-status-failure-border: #F5C8C8;
+
+  --color-status-info: #587FA6;         /* Restrained blue */
+  --color-status-info-bg: #E8EDF3;
+  --color-status-info-border: #D0DCEE;
+
+  --color-status-unknown: #73777D;      /* Muted grey */
+  --color-status-unknown-bg: #EEEEEE;
+  --color-status-unknown-border: #D8D8D8;
+
+  /* === Spacing System === */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* === Typography === */
+  --font-family-base: system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-family-mono: "SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas, monospace;
+
+  --font-size-xs: 11px;
+  --font-size-sm: 13px;
+  --font-size-base: 15px;
+  --font-size-lg: 17px;
+  --font-size-xl: 20px;
+  --font-size-2xl: 24px;
+  --font-size-3xl: 32px;
+  --font-size-4xl: 40px;
+
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  --line-height-tight: 1.2;
+  --line-height-base: 1.5;
+  --line-height-relaxed: 1.6;
+
+  /* === Border Radius === */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-pill: 999px;
+
+  /* === Shadows === */
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 2px 8px rgba(15, 23, 42, 0.06);
+  --shadow-lg: 0 4px 16px rgba(15, 23, 42, 0.08);
+  --shadow-xl: 0 8px 32px rgba(15, 23, 42, 0.10);
+
+  /* === Transitions === */
+  --transition-fast: 120ms ease;
+  --transition-base: 200ms ease;
+  --transition-slow: 300ms ease;
+
+  /* === Z-Index === */
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-modal-backdrop: 300;
+  --z-modal: 400;
+  --z-toast: 500;
+  --z-tooltip: 600;
+
+  /* === Layout === */
+  --sidebar-width: 260px;
+  --sidebar-width-collapsed: 72px;
+  --header-height: 56px;
+  --content-max-width: 1440px;
+
+  /* === Chart-specific tokens === */
+  --chart-grid-color: rgba(115, 119, 125, 0.15);
+  --chart-axis-color: rgba(115, 119, 125, 0.35);
+  --chart-text-color: #4A4E54;
+  --chart-tooltip-bg: #FFFFFF;
+  --chart-tooltip-border: #D9D3C8;
+  --chart-tooltip-shadow: 0 4px 16px rgba(15, 23, 42, 0.12);
+
+  /* Series colors - categorical, fixed order, colorblind-safe */
+  --chart-series-1: #587FA6;  /* Restrained blue */
+  --chart-series-2: #39765E;  /* Muted green */
+  --chart-series-3: #A97627;  /* Muted amber */
+  --chart-series-4: #A64D4D;  /* Muted red */
+  --chart-series-5: #7E57C2;  /* Muted purple */
+  --chart-series-6: #00897B;  /* Muted teal */
+  --chart-series-7: #C66900;  /* Muted orange */
+  --chart-series-8: #6D4C41;  /* Muted brown */
+
+  /* Comparison chart specific */
+  --chart-baseline-color: #94A3B8;      /* Slate - baseline */
+  --chart-baseline-color-light: #E2E8F0;
+  --chart-optimized-color: #587FA6;     /* Accent blue - optimized */
+  --chart-optimized-color-light: #E8EDF3;
+
+  /* === Focus === */
+  --focus-ring: 0 0 0 3px rgba(88, 127, 166, 0.35);
+  --focus-ring-dark: 0 0 0 3px rgba(88, 127, 166, 0.5);
+
+  /* === Reduced Motion === */
+  --transition-duration: var(--transition-base);
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --transition-duration: 0ms;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Dark mode support (if needed later) */
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* Keep the same warm beige aesthetic but darkened */
+    --color-bg-app: #C4B8A8;
+    --color-bg-card-primary: #2D3138;
+    --color-bg-card-secondary: #353A42;
+    --color-text-primary: #E8E1D5;
+    --color-text-secondary: #A8AAB0;
+    --color-border-subtle: #4A4E54;
+    --color-border-strong: #5A5E64;
+    --color-surface-dark-primary: #E8E1D5;
+    --color-surface-dark-secondary: #D4C8B8;
+
+    --chart-grid-color: rgba(168, 170, 176, 0.15);
+    --chart-axis-color: rgba(168, 170, 176, 0.35);
+    --chart-text-color: #D4C8B8;
+    --chart-tooltip-bg: #2D3138;
+    --chart-tooltip-border: #4A4E54;
+    --chart-tooltip-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+
+    --color-status-success-bg: #1E3A2A;
+    --color-status-success-border: #2D5A3E;
+
+    --color-status-warning-bg: #3A3218;
+    --color-status-warning-border: #5A4A28.
+
+    --color-status-failure-bg: #3A1E1E;
+    --color-status-failure-border: #5A2E2E;
+
+    --color-status-info-bg: #1E2A3A;
+    --color-status-info-border: #2E3E5A.
+
+    --color-status-unknown-bg: #2A2A2A;
+    --color-status-unknown-border: #404040.
+
+    --focus-ring: 0 0 0 3px rgba(120, 155, 190, 0.4);
+  }
+}
+
+/* Print styles */
+@media print {
+  :root {
+    --color-bg-app: #FFFFFF;
+    --color-bg-card-primary: #FFFFFF;
+    --color-bg-card-secondary: #F8F8F8;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+}

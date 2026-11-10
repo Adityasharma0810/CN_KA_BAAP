@@ -1,0 +1,197 @@
+/* StatusBadge - Semantic status indicators using design tokens */
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-family-base);
+  font-weight: var(--font-weight-semibold);
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+  line-height: 1;
+  border: 1px solid transparent;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast);
+}
+
+/* Size variants */
+.status-badge--sm {
+  font-size: var(--font-size-xs);
+  padding: var(--space-1) var(--space-2);
+  min-height: 20px;
+}
+
+.status-badge--default {
+  font-size: var(--font-size-sm);
+  padding: var(--space-1) var(--space-3);
+  min-height: 24px;
+}
+
+.status-badge--lg {
+  font-size: var(--font-size-base);
+  padding: var(--space-2) var(--space-4);
+  min-height: 28px;
+}
+
+/* Variant styles - using design tokens */
+
+/* Success / Healthy / Online / Good states */
+.status-badge--success {
+  background: var(--color-status-success-bg);
+  color: var(--color-status-success);
+  border-color: var(--color-status-success-border);
+}
+
+.status-badge--live {
+  background: var(--color-status-success-bg);
+  color: var(--color-status-success);
+  border-color: var(--color-status-success-border);
+}
+
+.status-badge--online {
+  background: var(--color-status-success-bg);
+  color: var(--color-status-success);
+  border-color: var(--color-status-success-border);
+}
+
+.status-badge--active {
+  background: var(--color-status-success-bg);
+  color: var(--color-status-success);
+  border-color: var(--color-status-success-border);
+}
+
+/* Warning / Attention states */
+.status-badge--warning {
+  background: var(--color-status-warning-bg);
+  color: var(--color-status-warning);
+  border-color: var(--color-status-warning-border);
+}
+
+.status-badge--degraded {
+  background: var(--color-status-warning-bg);
+  color: var(--color-status-warning);
+  border-color: var(--color-status-warning-border);
+}
+
+.status-badge--stale {
+  background: var(--color-status-warning-bg);
+  color: var(--color-status-warning);
+  border-color: var(--color-status-warning-border);
+}
+
+/* Failure / Error / Offline / Bad states */
+.status-badge--failure {
+  background: var(--color-status-failure-bg);
+  color: var(--color-status-failure);
+  border-color: var(--color-status-failure-border);
+}
+
+.status-badge--offline {
+  background: var(--color-status-failure-bg);
+  color: var(--color-status-failure);
+  border-color: var(--color-status-failure-border);
+}
+
+.status-badge--inactive {
+  background: var(--color-status-failure-bg);
+  color: var(--color-status-failure);
+  border-color: var(--color-status-failure-border);
+}
+
+/* Info / Neutral states */
+.status-badge--info {
+  background: var(--color-status-info-bg);
+  color: var(--color-status-info);
+  border-color: var(--color-status-info-border);
+}
+
+.status-badge--simulated {
+  background: var(--color-status-info-bg);
+  color: var(--color-status-info);
+  border-color: var(--color-status-info-border);
+}
+
+/* Unknown / Default states */
+.status-badge--unknown {
+  background: var(--color-status-unknown-bg);
+  color: var(--color-status-unknown);
+  border-color: var(--color-status-unknown-border);
+}
+
+/* Comparison-specific variants */
+.status-badge--baseline {
+  background: var(--chart-baseline-color-light);
+  color: var(--chart-baseline-color);
+  border-color: var(--chart-baseline-color);
+}
+
+.status-badge--optimized {
+  background: var(--chart-optimized-color-light);
+  color: var(--chart-optimized-color);
+  border-color: var(--chart-optimized-color);
+}
+
+/* Focus state for accessibility */
+.status-badge:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .status-badge {
+    transition: none;
+  }
+}
+
+/* Dark mode adjustments */
+@media (prefers-color-scheme: dark) {
+  .status-badge--success,
+  .status-badge--live,
+  .status-badge--online,
+  .status-badge--active {
+    background: var(--color-status-success-bg);
+    color: #A8D5BA;
+    border-color: var(--color-status-success-border);
+  }
+
+  .status-badge--warning,
+  .status-badge--degraded,
+  .status-badge--stale {
+    background: var(--color-status-warning-bg);
+    color: #F5D087;
+    border-color: var(--color-status-warning-border);
+  }
+
+  .status-badge--failure,
+  .status-badge--offline,
+  .status-badge--inactive {
+    background: var(--color-status-failure-bg);
+    color: #F5A8A8;
+    border-color: var(--color-status-failure-border);
+  }
+
+  .status-badge--info,
+  .status-badge--simulated {
+    background: var(--color-status-info-bg);
+    color: #A8C8E8;
+    border-color: var(--color-status-info-border);
+  }
+
+  .status-badge--unknown {
+    background: var(--color-status-unknown-bg);
+    color: var(--color-status-unknown);
+    border-color: var(--color-status-unknown-border);
+  }
+
+  .status-badge--baseline {
+    background: rgba(148, 163, 184, 0.2);
+    color: #94A3B8;
+    border-color: #94A3B8;
+  }
+
+  .status-badge--optimized {
+    background: rgba(88, 127, 166, 0.2);
+    color: #587FA6;
+    border-color: #587FA6;
+  }
+}
