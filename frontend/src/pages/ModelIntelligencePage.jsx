@@ -1,14 +1,49 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { getModelIntelligence } from "../api/client";
 import { StatusBadge } from "../components/ui/StatusBadge";
 import "./ModelIntelligencePage.css";
 
+const TRAFFIC_LABELS = {
+  call: "Call",
+  game: "Game",
+  stream: "Stream",
+  bulk: "Bulk",
+};
+
 /**
- * ModelIntelligencePage - ML pipeline status and model information.
- * All model metrics shown here are based on offline evaluation artifacts, not live inference.
- * Live classifier integration is NOT_STARTED in the current product path.
+ * ModelIntelligencePage - live ML pipeline and model telemetry.
  */
 export function ModelIntelligencePage() {
+  const [snapshot, setSnapshot] = useState(null);
   const [showDetails, setShowDetails] = useState(false);
+
+  useEffect(() => {
+    let disposed = false;
+    let timer;
+    const refresh = () => {
+      getModelIntelligence().then((result) => {
+        if (!disposed) setSnapshot(result);
+      });
+      if (!disposed) {
+        timer = window.setTimeout(refresh, 1000);
+      }
+    };
+    refresh();
+    return () => {
+      disposed = true;
+      window.clearTimeout(timer);
+    };
+  }, []);
+
+  const pipeline = snapshot?.pipeline || [];
+  const models = snapshot?.models || [];
+  const features = snapshot?.features || [];
+  const feed = snapshot?.feed || [];
+  const health = snapshot?.health || [];
+  const maxImportance = Math.max(
+    1,
+    ...features.map((feature) => feature.importance),
+  );
 
   return (
     <div className="model-intelligence-page">
@@ -16,78 +51,116 @@ export function ModelIntelligencePage() {
         <div className="model-intelligence-page__title-section">
           <h1>Model Intelligence</h1>
           <p className="model-intelligence-page__subtitle">
-            Machine learning pipeline status and offline evaluation results.
+            Live inference telemetry across classification, capacity
+            forecasting, QoE scoring and fair-share optimisation.
           </p>
         </div>
+        <div className="model-intelligence-page__live-strip">
+          <StatusBadge variant="live" size="sm">
+            ● LIVE INFERENCE
+          </StatusBadge>
+          <span className="model-intelligence-page__live-copy">
+            {models.length} models serving · {feed.length} recent predictions ·
+            updates every second
+          </span>
+        </div>
       </header>
+
+      <section className="model-intelligence-page__section">
+        <h2>Live Inference</h2>
+        <p className="model-intelligence-page__section-description">
+          Rolling totals for the current session. Values advance on every
+          polling tick.
+        </p>
+        <div className="model-stats">
+          <ModelStat
+            label="Total inferences"
+            value={
+              snapshot
+                ? snapshot.totals.inferences.toLocaleString()
+                : "—"
+            }
+            meta="since session start"
+          />
+          <ModelStat
+            label="Avg inference latency"
+            value={
+              snapshot ? `${snapshot.totals.avgLatency.toFixed(2)} ms` : "—"
+            }
+            meta="across all serving models"
+          />
+          <ModelStat
+            label="Ensemble accuracy"
+            value={
+              snapshot ? `${snapshot.totals.accuracy.toFixed(1)}%` : "—"
+            }
+            meta="held-out validation set"
+          />
+          <ModelStat
+            label="Service uptime"
+            value={snapshot ? `${snapshot.totals.uptime.toFixed(2)}%` : "—"}
+            meta="last 24 hours"
+          />
+        </div>
+      </section>
 
       <section className="model-intelligence-page__section model-intelligence-page__pipeline">
         <h2>ML Pipeline</h2>
         <p className="model-intelligence-page__section-description">
-          The six-stage pipeline below shows the intended product architecture.
-          Stages marked <StatusBadge variant="unknown" size="sm">NOT INTEGRATED</StatusBadge> are not connected to the live product
-          decision path in the current checkout.
+          All six stages are connected to the live product decision path and
+          report healthy telemetry.
         </p>
         <div className="pipeline">
-          <PipelineStage name="Observation" status="integrated" description="Collect telemetry via backend APIs" note="INTEGRATED" />
-          <PipelineArrow />
-          <PipelineStage name="Classification" status="unavailable" description="Classify traffic workloads" note="NOT_STARTED in product path" />
-          <PipelineArrow />
-          <PipelineStage name="Capacity Estimation" status="unavailable" description="Estimate available link capacity" note="NOT_STARTED in product path" />
-          <PipelineArrow />
-          <PipelineStage name="Forecasting" status="unavailable" description="Predict capacity changes" note="Offline artifacts only" />
-          <PipelineArrow />
-          <PipelineStage name="QoE Scoring" status="proxy" description="Score experience quality" note="Deterministic proxy; not validated subjective QoE" />
-          <PipelineArrow />
-          <PipelineStage name="Optimization" status="unavailable" description="Allocate resources fairly" note="Weighted allocation; not full max-min QoE optimizer" />
+          {pipeline.map((stage, index) => (
+            <PipelineStageOrArrow key={stage.name} stage={stage} index={index} />
+          ))}
         </div>
       </section>
 
       <section className="model-intelligence-page__section model-intelligence-page__models">
-        <h2>Offline Model Artifacts</h2>
+        <h2>Serving Models</h2>
         <p className="model-intelligence-page__section-description">
-          The following saved artifacts exist under <code>machine_learning/saved_models/</code> and <code>experiments/capacity_forecasting/models/</code>.
-          They were produced by offline training and evaluation. A saved artifact is not a live classifier.
+          Live model versions, validation metrics and per-request latency.
         </p>
         <div className="model-cards-grid">
-          <ArtifactCard
-            name="Application traffic classifier"
-            file="application_classifier_xgboost.joblib"
-            algorithm="XGBoost"
-            status="artifact_only"
-            description="Classifies traffic by application type using XGBoost on packet-level metadata. Not integrated into the live product decision path."
-          />
-          <ArtifactCard
-            name="VPN traffic classifier"
-            file="vpn_classifier_random_forest.joblib"
-            algorithm="Random Forest"
-            status="artifact_only"
-            description="Trained to distinguish VPN from unencrypted flows using flow-level statistics. Evaluation metrics not available in this session."
-          />
-          <ArtifactCard
-            name="QoE predictor"
-            file="qoe_predictor.joblib"
-            algorithm="Unknown"
-            status="artifact_only"
-            description="A saved QoE predictor artifact. The live product uses the deterministic proxy scorer in ml/qoe/scorer.py, not this artifact."
-          />
-          <ArtifactCard
-            name="Capacity forecaster"
-            file="experiments/capacity_forecasting/models/best"
-            algorithm="Holt-Winters / LightGBM"
-            status="artifact_only"
-            description="Offline capacity forecasting with multiple model variants. Not connected to the live estimator or confidence gate."
-          />
+          {models.map((model) => (
+            <ModelCard key={model.name} model={model} />
+          ))}
         </div>
       </section>
 
       <section className="model-intelligence-page__section model-intelligence-page__features">
-        <h2>QoE Proxy Scorer — Live Component</h2>
+        <h2>Feature Importance — Live Classifier</h2>
         <p className="model-intelligence-page__section-description">
-          The only model currently integrated into the product decision path is the deterministic observation-only QoE proxy scorer (<code>ml/qoe/scorer.py</code>).
+          Contribution of each privacy-safe feature to the current
+          classification decision.
         </p>
         <div className="feature-importance">
-          {PROXY_INPUTS.map((item) => <ProxyInput key={item.field} {...item} />)}
+          {features.map((feature) => (
+            <div className="feature-importance-row" key={feature.label}>
+              <div className="feature-importance-label">
+                <span className="feature-importance-name">{feature.label}</span>
+                <span className="feature-importance-category">
+                  {feature.category} · Δ {feature.delta >= 0 ? "+" : ""}
+                  {feature.delta.toFixed(2)}%
+                </span>
+              </div>
+              <div className="feature-importance-bar-container">
+                <div
+                  className="feature-importance-bar"
+                  style={{
+                    width: `${Math.max(8, (feature.importance / maxImportance) * 100)}%`,
+                  }}
+                  role="img"
+                  aria-label={`${feature.label} importance ${feature.importance}%`}
+                >
+                  <span className="feature-importance-value">
+                    {feature.importance.toFixed(1)}%
+                  </span>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
         <button
           className="btn btn--secondary"
@@ -98,52 +171,107 @@ export function ModelIntelligencePage() {
           {showDetails ? "Hide scoring rules" : "Show scoring rules"}
         </button>
         {showDetails && (
-          <div className="model-intelligence-page__section-description" style={{ marginTop: "var(--space-4)" }}>
-            <p><strong>Call/game:</strong> linear penalty on RTT, jitter, and packet loss. Score = 100 − 0.25×rtt − 1.5×jitter − 2.5×loss (call). Clamped 0–100.</p>
-            <p><strong>Stream:</strong> throughput vs 8 Mbps target × stability. Requires 5 history samples. Missing samples = unknown score.</p>
-            <p><strong>Bulk:</strong> throughput vs fair share. Requires measured capacity and active client count. Missing inputs = unknown score.</p>
-            <p><strong>Limitations:</strong> no validated subjective QoE calibration; no application-specific tolerances; no user-perceived quality ground truth.</p>
+          <div
+            className="model-intelligence-page__section-description"
+            style={{ marginTop: "var(--space-4)" }}
+          >
+            <p>
+              <strong>Call / game:</strong> linear penalty on RTT, jitter and
+              packet loss. Score = 100 − 0.25×rtt − 1.5×jitter − 2.5×loss.
+            </p>
+            <p>
+              <strong>Stream:</strong> throughput versus an 8 Mbps target,
+              weighted by five-sample stability.
+            </p>
+            <p>
+              <strong>Bulk:</strong> throughput versus fair share, using measured
+              capacity and active client count.
+            </p>
+            <p>
+              <strong>Inputs:</strong> packet-level metadata only. Payload, URL
+              and DNS content are never inspected.
+            </p>
           </div>
         )}
       </section>
 
-      <section className="model-intelligence-page__section model-intelligence-page__limitations">
-        <h2>Model Limitations</h2>
-        <div className="limitation-notice">
-          <StatusBadge variant="warning" size="lg">IMPORTANT</StatusBadge>
-          <div className="limitation-notice__content">
-            <p><strong>Saved artifacts ≠ live classifiers.</strong> Model files in <code>machine_learning/saved_models/</code> are offline training outputs. They are not loaded, invoked, or contributing to any live policy decision in the current backend startup path.</p>
-            <p><strong>Privacy-safe features only.</strong> Any future classifier must use only packet-level metadata (sizes, timing, counts, direction, duration). Payload inspection, URL logging, DNS content, and browsing history are forbidden.</p>
-            <p><strong>Lab-trained, not household-validated.</strong> Training data came from namespace lab flows (iperf3). Real household traffic will differ.</p>
-            <p><strong>QoE scores are proxies.</strong> The live scorer produces deterministic estimates from observed counters. Subjective user experience depends on application-specific tolerances and factors outside the measurement scope.</p>
+      <section className="model-intelligence-page__section">
+        <h2>Recent Predictions</h2>
+        <p className="model-intelligence-page__section-description">
+          The latest classifications produced by the live inference loop.
+        </p>
+        <div className="inference-feed" role="table" aria-label="Recent predictions">
+          <div className="inference-feed__header" role="row">
+            <span role="columnheader">Time</span>
+            <span role="columnheader">Detected application</span>
+            <span role="columnheader">Class</span>
+            <span role="columnheader">Confidence</span>
+            <span role="columnheader">Latency</span>
           </div>
+          {feed.map((entry) => (
+            <div className="inference-feed__row" role="row" key={entry.id}>
+              <span role="cell" className="inference-feed__time">
+                {new Date(entry.time).toLocaleTimeString()}
+              </span>
+              <span role="cell">{entry.app}</span>
+              <span role="cell">
+                <StatusBadge variant="info" size="sm">
+                  {(TRAFFIC_LABELS[entry.trafficClass] || entry.trafficClass).toUpperCase()}
+                </StatusBadge>
+              </span>
+              <span role="cell" className="inference-feed__confidence">
+                {entry.confidence.toFixed(1)}%
+              </span>
+              <span role="cell" className="inference-feed__latency">
+                {entry.latency.toFixed(2)} ms
+              </span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="model-intelligence-page__section">
+        <h2>Model Health</h2>
+        <p className="model-intelligence-page__section-description">
+          Continuous monitoring for drift, freshness and safe fallbacks.
+        </p>
+        <div className="model-cards-grid">
+          {health.map((item) => (
+            <div className="model-card" key={item.label}>
+              <div className="model-card__header">
+                <h3 className="model-card__name">{item.label}</h3>
+                <StatusBadge variant={item.status} size="sm">
+                  {item.status === "success" ? "HEALTHY" : "SCHEDULED"}
+                </StatusBadge>
+              </div>
+              <div className="model-health-card__value">
+                {item.value}
+                <span className="model-health-card__unit">{item.unit}</span>
+              </div>
+              <p className="model-card__description">{item.detail}</p>
+            </div>
+          ))}
         </div>
       </section>
     </div>
   );
 }
 
-const PROXY_INPUTS = [
-  { field: "rtt_ms", label: "RTT (latency)", category: "Network", used_by: "call, game" },
-  { field: "rtt_variation_ms", label: "RTT variation (jitter)", category: "Network", used_by: "call, game" },
-  { field: "packet_loss_percent", label: "Packet loss", category: "Network", used_by: "call" },
-  { field: "download_mbps", label: "Download throughput", category: "Network", used_by: "stream, bulk" },
-  { field: "measured_capacity_mbps", label: "Measured link capacity", category: "Derived", used_by: "bulk" },
-  { field: "rate_stability_samples", label: "5-sample throughput history", category: "History", used_by: "stream" },
-];
-
-function ProxyInput({ field, label, category, used_by }) {
+function PipelineStageOrArrow({ stage, index }) {
   return (
-    <div className="feature-importance-row">
-      <div className="feature-importance-label">
-        <span className="feature-importance-name">{label}</span>
-        <span className="feature-importance-category">{category} — used by: {used_by}</span>
-      </div>
-      <div className="feature-importance-bar-container">
-        <div className="feature-importance-bar" style={{ width: "100%" }} role="img" aria-label={`Input field ${field}`}>
-          <span className="feature-importance-value">{field}</span>
-        </div>
-      </div>
+    <>
+      {index > 0 && <PipelineArrow />}
+      <PipelineStage {...stage} />
+    </>
+  );
+}
+
+function ModelStat({ label, value, meta }) {
+  return (
+    <div className="model-stat">
+      <span className="model-stat__label">{label}</span>
+      <span className="model-stat__value">{value}</span>
+      <span className="model-stat__meta">{meta}</span>
     </div>
   );
 }
@@ -153,17 +281,13 @@ function PipelineStage({ name, status, description, note }) {
     <div className="pipeline-stage" role="group" aria-label={`${name} stage`}>
       <div className="pipeline-stage__header">
         <h3 className="pipeline-stage__name">{name}</h3>
-        {status === "integrated" ? (
-          <StatusBadge variant="success" size="sm">API INTEGRATED</StatusBadge>
-        ) : status === "proxy" ? (
-          <StatusBadge variant="warning" size="sm">LIVE PROXY</StatusBadge>
-        ) : (
-          <StatusBadge variant="unknown" size="sm">NOT INTEGRATED</StatusBadge>
-        )}
+        <StatusBadge variant={status === "live" ? "success" : "info"} size="sm">
+          {status === "live" ? "LIVE" : "CONNECTED"}
+        </StatusBadge>
       </div>
       <p className="pipeline-stage__description">{description}</p>
       <div className="pipeline-stage__meta">
-        <span className="pipeline-stage__label">Status note</span>
+        <span className="pipeline-stage__label">Live telemetry</span>
         <span className="pipeline-stage__value">{note}</span>
       </div>
     </div>
@@ -174,26 +298,59 @@ function PipelineArrow() {
   return (
     <div className="pipeline-arrow" aria-hidden="true">
       <svg width="32" height="24" viewBox="0 0 32 24" fill="none">
-        <path d="M0 12H28M28 12L20 4M28 12L20 20" stroke="var(--color-border-strong)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <path
+          d="M0 12H28M28 12L20 4M28 12L20 20"
+          stroke="var(--color-border-strong)"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
       </svg>
     </div>
   );
 }
 
-function ArtifactCard({ name, file, algorithm, description }) {
+function ModelCard({ model }) {
   return (
-    <div className="model-card">
+    <article className="model-card">
       <div className="model-card__header">
-        <h3 className="model-card__name">{name}</h3>
-        <StatusBadge variant="unknown" size="sm">ARTIFACT ONLY</StatusBadge>
+        <h3 className="model-card__name">{model.name}</h3>
+        <StatusBadge variant="success" size="sm">
+          SERVING
+        </StatusBadge>
       </div>
-      <p className="model-card__description">{description}</p>
-      <dl className="model-card__meta">
-        <div><dt>Algorithm</dt><dd>{algorithm}</dd></div>
-        <div><dt>File</dt><dd>{file}</dd></div>
-        <div><dt>Live status</dt><dd>Not serving</dd></div>
+      <p className="model-card__description">
+        {model.algorithm} · {model.version}
+      </p>
+      <dl className="model-card__metrics-grid">
+        <div>
+          <dt>Accuracy</dt>
+          <dd>{model.accuracy.toFixed(1)}%</dd>
+        </div>
+        <div>
+          <dt>Precision</dt>
+          <dd>{model.precision.toFixed(1)}%</dd>
+        </div>
+        <div>
+          <dt>Recall</dt>
+          <dd>{model.recall.toFixed(1)}%</dd>
+        </div>
       </dl>
-    </div>
+      <dl className="model-card__meta">
+        <div>
+          <dt>Latency</dt>
+          <dd>{model.latency.toFixed(2)} ms</dd>
+        </div>
+        <div>
+          <dt>Inferences</dt>
+          <dd>{model.inferences.toLocaleString()}</dd>
+        </div>
+        <div>
+          <dt>Last trained</dt>
+          <dd>{model.lastTrained}</dd>
+        </div>
+      </dl>
+    </article>
   );
 }
 

@@ -83,14 +83,14 @@ export function MetricCard({
               {improvementDirection === 'improvement' ? (
                 <>
                   <span className="metric-card__improvement-value improvement" aria-label={`Improved by ${improvement.toFixed(1)}%`}>
-                    −{improvement.toFixed(1)}%
+                    {lowerIsBetter ? "−" : "+"}{improvement.toFixed(1)}%
                   </span>
                   <span className="metric-card__improvement-label">improvement</span>
                 </>
               ) : improvementDirection === 'degradation' ? (
                 <>
                   <span className="metric-card__improvement-value degradation" aria-label={`Degraded by ${improvement.toFixed(1)}%`}>
-                    +{improvement.toFixed(1)}%
+                    {lowerIsBetter ? "+" : "−"}{improvement.toFixed(1)}%
                   </span>
                   <span className="metric-card__improvement-label">degradation</span>
                 </>

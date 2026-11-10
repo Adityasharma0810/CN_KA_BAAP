@@ -12,6 +12,13 @@
   height: 100%;
 }
 
+.comparison-chart__title {
+  padding: var(--space-3) var(--space-4) 0;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+
 /* Empty state */
 .comparison-chart--empty {
   display: flex;

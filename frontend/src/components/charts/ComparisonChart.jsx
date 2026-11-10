@@ -55,6 +55,7 @@ export function ComparisonChart({
   showGrid = true,
   showTooltip = true,
   tooltipFormatter,
+  title,
   className = "",
   "aria-label": ariaLabel,
 }) {
@@ -107,6 +108,7 @@ export function ComparisonChart({
       aria-label={ariaLabel || `${baselineLabel} vs ${optimizedLabel} time-series comparison`}
     >
       <div className="comparison-chart__container">
+        {title && <div className="comparison-chart__title">{title}</div>}
         <ResponsiveContainer width="100%" height={height}>
           <LineChart data={data} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
             {showGrid && (
@@ -218,7 +220,7 @@ export function MultiMetricComparisonChart({
 
   return (
     <div className={`comparison-chart-grid ${className}`} role="region" aria-label="Metric comparison charts">
-      {metrics.map(({ key, unit, digits = 2 }) => (
+      {metrics.map(({ key, unit, digits = 2, label }) => (
         <ComparisonChart
           key={key}
           data={data}
@@ -228,6 +230,7 @@ export function MultiMetricComparisonChart({
           baselineLabel={baselineLabel}
           optimizedLabel={optimizedLabel}
           unit={unit}
+          title={label || key}
           height={height}
           tooltipFormatter={(value) => value !== null && value !== undefined
             ? `${Number(value).toFixed(digits)} ${unit}`

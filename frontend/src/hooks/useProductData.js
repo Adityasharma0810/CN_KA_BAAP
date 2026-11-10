@@ -14,7 +14,7 @@ import {
   getTopology,
 } from "../api/client";
 
-const REFRESH_INTERVAL_MS = 8000;
+const REFRESH_INTERVAL_MS = 1000;
 const HISTORY_LIMIT = 200;
 
 function historyRange(range) {

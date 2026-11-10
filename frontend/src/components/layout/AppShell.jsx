@@ -38,7 +38,7 @@ export function AppShell({ children }) {
           ? capabilities.value.platform || "unknown"
           : "unavailable",
       );
-      timer = window.setTimeout(refreshStatus, 15000);
+      timer = window.setTimeout(refreshStatus, 1000);
     };
 
     refreshStatus();
@@ -140,7 +140,7 @@ export function AppShell({ children }) {
               </div>
               <div className="app-shell__status-row">
                 <dt>Platform</dt>
-                <dd><StatusBadge variant="unknown" size="sm">{platform}</StatusBadge></dd>
+                <dd><StatusBadge variant={platform === "checking" || platform === "unavailable" ? "unknown" : "success"} size="sm">{formatPlatform(platform)}</StatusBadge></dd>
               </div>
             </dl>
           </div>
@@ -193,6 +193,11 @@ function resolveStatus(result, unavailableStatus = "error") {
     default:
       return "unknown";
   }
+}
+
+function formatPlatform(platform) {
+  if (!platform) return "Unknown";
+  return platform.charAt(0).toUpperCase() + platform.slice(1);
 }
 
 function getPageTitle(pathname) {

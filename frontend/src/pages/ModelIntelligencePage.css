@@ -322,6 +322,120 @@
   color: var(--color-status-warning);
 }
 
+/* Live strip */
+.model-intelligence-page__live-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.model-intelligence-page__live-copy {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+/* Live stats */
+.model-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: var(--space-4);
+}
+
+.model-stat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  background: var(--color-bg-card-secondary);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.model-stat__label {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-secondary);
+}
+
+.model-stat__value {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.model-stat__meta {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+/* Inference feed */
+.inference-feed {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--color-bg-card-primary);
+}
+
+.inference-feed__header,
+.inference-feed__row {
+  display: grid;
+  grid-template-columns: 110px minmax(160px, 2fr) minmax(90px, 1fr) 110px 110px;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--font-size-sm);
+}
+
+.inference-feed__header {
+  background: var(--color-bg-card-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-secondary);
+}
+
+.inference-feed__row {
+  border-top: 1px solid var(--color-border-subtle);
+  color: var(--color-text-primary);
+}
+
+.inference-feed__time,
+.inference-feed__confidence,
+.inference-feed__latency {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.inference-feed__row:first-of-type {
+  background: var(--color-accent-light);
+}
+
+/* Health cards */
+.model-health-card__value {
+  font-size: var(--font-size-3xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.model-health-card__unit {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+  margin-left: var(--space-1);
+}
+
 /* Responsive */
 @media (max-width: 1024px) {
   .pipeline {
@@ -375,6 +489,15 @@
   .limitation-notice {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .inference-feed__header {
+    display: none;
+  }
+
+  .inference-feed__row {
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-2) var(--space-4);
   }
 }
 
