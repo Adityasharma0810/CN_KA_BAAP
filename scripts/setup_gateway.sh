@@ -29,12 +29,7 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
-lab_require_commands ip nft sysctl awk grep install
-
-UPLINK="$(ip route show default 2>/dev/null | awk '{ print $5; exit }')"
-[[ -n "$UPLINK" ]] || lab_die "no default route; cannot configure NAT"
-[[ "$UPLINK" =~ ^[A-Za-z0-9_.:-]{1,15}$ ]] || lab_die "invalid uplink interface name: ${UPLINK}"
-[[ "$UPLINK" != "$LAB_BRIDGE" ]] || lab_die "uplink must not be the lab bridge"
+lab_require_commands ip awk grep install
 
 # Validate ownership before changing anything. An existing resource with one
 # of our names but no project marker/state is treated as unrelated and refused.
@@ -113,25 +108,7 @@ for ((i = 1; i <= COUNT; i++)); do
   printf 'nameserver 1.1.1.1\n' > "/etc/netns/${ns}/resolv.conf"
 done
 
-# Internet access: forward + NAT out through the VM's default interface.
-# Record whether forwarding was already enabled so cleanup can restore it.
-PREVIOUS_FORWARD="$(cat /proc/sys/net/ipv4/ip_forward)"
-if [[ "$PREVIOUS_FORWARD" != "1" ]]; then
-  sysctl -qw net.ipv4.ip_forward=1
-  lab_state_ensure sysctl "ip_forward=${PREVIOUS_FORWARD}"
-  echo "Enabled IPv4 forwarding (was ${PREVIOUS_FORWARD})"
-fi
-
-# Only ever touch our own nft table. Other tables/rules are left untouched.
-if nft list table ip "$LAB_NAT_TABLE" >/dev/null 2>&1; then
-  nft delete table ip "$LAB_NAT_TABLE"
-fi
-nft add table ip "$LAB_NAT_TABLE"
-nft add chain ip "$LAB_NAT_TABLE" eb_owner
-nft add rule ip "$LAB_NAT_TABLE" eb_owner counter comment "$LAB_MARKER"
-nft add chain ip "$LAB_NAT_TABLE" postrouting '{ type nat hook postrouting priority 100; }'
-nft add rule ip "$LAB_NAT_TABLE" postrouting ip saddr "${LAB_PREFIX}.0/24" oifname "$UPLINK" masquerade
-lab_state_ensure nft "$LAB_NAT_TABLE"
-
-echo "NAT enabled via ${UPLINK}"
-echo "Lab ready: ${COUNT} client(s)."
+# The lab is intentionally isolated. Do not enable forwarding or NAT through
+# the host's default route; namespace-to-namespace experiments need only the
+# project-owned bridge.
+echo "Lab ready: ${COUNT} isolated client(s); host uplink unchanged."

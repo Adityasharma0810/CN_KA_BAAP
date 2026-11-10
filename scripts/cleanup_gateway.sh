@@ -32,7 +32,7 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
-lab_require_commands ip nft sysctl awk grep
+lab_require_commands ip sysctl awk grep
 
 # Namespaces: union of recorded ownership, currently visible names, and the
 # optional requested count. Only names carrying a project marker/state are

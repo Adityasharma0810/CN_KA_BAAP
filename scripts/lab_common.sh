@@ -139,6 +139,17 @@ lab_namespace_owned() {
   [[ -f "/etc/netns/${ns}/.eb-owned" ]]
 }
 
+lab_namespace_interface_owned() {
+  local ns="$1"
+  local interface="$2"
+  local alias
+  lab_namespace_owned "$ns" || return 1
+  ip netns exec "$ns" ip link show dev "$interface" >/dev/null 2>&1 || return 1
+  alias="$(ip netns exec "$ns" ip -d link show dev "$interface" 2>/dev/null |
+    awk '$1 == "alias" { print $2; exit }')"
+  [[ "$alias" == "$LAB_MARKER" ]]
+}
+
 lab_dns_owned() {
   local ns="$1"
   [[ -f "/etc/netns/${ns}/.eb-owned" ]] && return 0
