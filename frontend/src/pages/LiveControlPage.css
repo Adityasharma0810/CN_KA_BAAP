@@ -627,3 +627,34 @@
     border-color: rgba(88, 127, 166, 0.3);
   }
 }
+
+.client-card__classifier {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2, 8px);
+  padding-top: var(--space-2, 8px);
+  border-top: 1px solid var(--color-border, #333);
+}
+
+.client-card__classifier-source {
+  font-size: 0.75rem;
+  color: var(--color-text-muted, #888);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.client-card__correct-btn {
+  font-size: 0.72rem;
+  color: var(--color-text-muted, #888);
+  background: transparent;
+  border: 1px solid var(--color-border, #333);
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.client-card__correct-btn:hover {
+  color: var(--color-text, #eee);
+  border-color: var(--color-border-strong, #555);
+}

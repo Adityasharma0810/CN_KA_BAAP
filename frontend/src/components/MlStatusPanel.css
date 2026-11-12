@@ -1,0 +1,133 @@
+.ml-status-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3, 12px);
+}
+
+.ml-status-panel__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3, 12px);
+}
+
+.ml-status-panel__header h2 {
+  margin: 0;
+}
+
+.ml-status-panel__note {
+  font-size: 0.85rem;
+  color: var(--color-text-muted, #888);
+  margin: 0;
+}
+
+.ml-status-panel__error {
+  color: var(--color-warning, #d97706);
+}
+
+.ml-status-panel__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-3, 12px);
+}
+
+.ml-status-panel__card {
+  border: 1px solid var(--color-border, #333);
+  border-radius: 8px;
+  padding: var(--space-3, 12px);
+  background: var(--color-surface, #1a1a1a);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 8px);
+}
+
+.ml-status-panel__card h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.ml-status-panel__capacity {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2, 8px);
+}
+
+.ml-status-panel__capacity-value {
+  font-size: 1.4rem;
+  font-weight: 600;
+}
+
+.ml-status-panel__capacity-band {
+  font-size: 0.85rem;
+  color: var(--color-text-muted, #888);
+}
+
+.ml-status-panel__capacity-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--color-border, #333);
+  overflow: hidden;
+}
+
+.ml-status-panel__capacity-fill {
+  height: 100%;
+  background: var(--color-success, #16a34a);
+  border-radius: 3px;
+}
+
+.ml-status-panel__meta {
+  font-size: 0.78rem;
+  color: var(--color-text-muted, #888);
+}
+
+.ml-status-panel__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.ml-status-panel__table th,
+.ml-status-panel__table td {
+  text-align: left;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--color-border, #333);
+}
+
+.ml-status-panel__table th {
+  color: var(--color-text-muted, #888);
+  font-weight: 500;
+}
+
+.ml-status-panel__metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin: 0;
+  gap: var(--space-2, 8px);
+}
+
+.ml-status-panel__metrics dt {
+  font-size: 0.75rem;
+  color: var(--color-text-muted, #888);
+}
+
+.ml-status-panel__metrics dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+.ml-status-panel__reason {
+  font-size: 0.78rem;
+  color: var(--color-warning, #d97706);
+  margin: 0;
+}
+
+.ml-status-panel__training-note {
+  font-size: 0.78rem;
+  color: var(--color-text-muted, #888);
+  margin: 0;
+}
+
+.ml-status-panel__unavailable {
+  color: var(--color-text-muted, #888);
+  font-style: italic;
+  margin: 0;
+}

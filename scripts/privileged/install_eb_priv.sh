@@ -18,7 +18,9 @@ fi
 readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly DEST_DIR=/usr/local/libexec/eb
 readonly DEST_HELPER="${DEST_DIR}/eb-priv"
-readonly SUDOERS_FILE=/etc/sudoers.d/eb-priv
+# Sudoers file name sorts after any broad password rule (e.g. experience-budget)
+# so the NOPASSWD entries are the last match and actually take effect.
+readonly SUDOERS_FILE=/etc/sudoers.d/zz-eb-priv
 readonly SUDOERS_TMP="${SUDOERS_FILE}.tmp"
 readonly HELPER_TMP="${DEST_DIR}/eb-priv.tmp"
 
@@ -64,4 +66,7 @@ fi
 
 /usr/bin/mv -f -- "$HELPER_TMP" "$DEST_HELPER"
 /usr/bin/mv -f -- "$SUDOERS_TMP" "$SUDOERS_FILE"
+# Remove the legacy sudoers file name (sorted before the broad password rule
+# and so overridden by it). Fixed path; safe to remove as we own it.
+/usr/bin/rm -f -- /etc/sudoers.d/eb-priv 2>/dev/null || true
 printf 'Installed root-owned lab helper and bounded sudo rules for %s.\n' "$SUDO_USER"

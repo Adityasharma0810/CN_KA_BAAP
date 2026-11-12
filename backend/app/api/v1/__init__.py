@@ -7,6 +7,8 @@ added here and share typed response models.
 
 from fastapi import APIRouter
 
+from backend.app.api.v1.classifier import router as classifier_router
+from backend.app.api.v1.forecast import router as forecast_router
 from backend.app.api.v1.health import router as health_router
 from backend.app.api.v1.observations import router as observations_router
 from backend.app.api.v1.qoe import router as qoe_router
@@ -20,3 +22,5 @@ router.include_router(observations_router)
 router.include_router(system_router)
 router.include_router(scenarios_router)
 router.include_router(qoe_router)
+router.include_router(forecast_router)
+router.include_router(classifier_router)

@@ -23,7 +23,9 @@ class QoEInput(QoEModel):
 class QoEClientScore(QoEModel):
     client_id: ClientId
     traffic_class: Literal["call", "game", "stream", "bulk", "unknown"]
-    class_source: Literal["scenario_declared", "unclassified"]
+    class_source: Literal["ml_classifier", "scenario_declared", "unclassified"]
+    declared_class: Literal["call", "game", "stream", "bulk"] | None = None
+    classifier_confidence: float | None = Field(default=None, ge=0, le=1)
     score: float | None = Field(default=None, ge=0, le=100)
     band: Literal["green", "amber", "red", "unknown"]
     observed_at: datetime

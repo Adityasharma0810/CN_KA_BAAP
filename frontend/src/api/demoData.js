@@ -1033,3 +1033,80 @@ export function getModelIntelligence() {
     ],
   };
 }
+
+/* ------------------------------------------------------------------ */
+/* Forecast and classifier (demo snapshots)                           */
+/* ------------------------------------------------------------------ */
+
+export function getForecastCurrent() {
+  const now = Date.now();
+  const ts = (d) => new Date(d).toISOString();
+  return {
+    observed_at: ts(now),
+    capacity_mbps: 98.5,
+    capacity_uncertainty_mbps: 4.2,
+    history_samples: 60,
+    model_available: true,
+    horizons: [
+      {
+        horizon_seconds: 10,
+        source: "model",
+        forecast_mbps: 96.4,
+        persistence_mbps: 95.0,
+        confidence: 0.62,
+        reason: "LightGBM forecast; live error not worse than persistence",
+      },
+      {
+        horizon_seconds: 30,
+        source: "model",
+        forecast_mbps: 91.2,
+        persistence_mbps: 95.0,
+        confidence: 0.58,
+        reason: "LightGBM forecast; live error not worse than persistence",
+      },
+    ],
+  };
+}
+
+export function getForecastHistory() {
+  const now = Date.now();
+  const ts = (d) => new Date(d).toISOString();
+  const points = Array.from({ length: 12 }, (_, i) => {
+    const at = now - (12 - i) * 10000;
+    const actual = 90 + Math.sin(i / 2) * 8;
+    return {
+      forecast_at: ts(at),
+      horizon_seconds: 10,
+      target_at: ts(at + 10000),
+      forecast_mbps: round(actual + 2, 2),
+      persistence_mbps: round(actual + 4, 2),
+      actual_mbps: round(actual, 2),
+      source: "model",
+    };
+  });
+  return { requested_at: ts(now), count: points.length, points };
+}
+
+export function getClassifierStatus() {
+  return {
+    available: true,
+    version: "1.0",
+    classes: ["call", "game", "stream", "bulk", "unknown"],
+    confidence_threshold: 0.6,
+    held_out_f1: 0.82,
+    baseline_f1: 0.61,
+    last_fallback_reason: null,
+    training_note:
+      "Demo classifier metrics. Lab-derived features (rates, direction ratio, mean packet size) labelled by scenario manifests.",
+  };
+}
+
+export function postLabelCorrection(_clientId, _body) {
+  return {
+    accepted: true,
+    stored_at: new Date().toISOString(),
+    client_id: _clientId,
+    corrected_label: _body?.corrected_label || "bulk",
+    training_triggered: false,
+  };
+}

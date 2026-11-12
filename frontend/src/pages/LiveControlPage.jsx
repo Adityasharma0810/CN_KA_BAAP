@@ -5,8 +5,10 @@ import {
   getGatewayStatus,
   getHealth,
   getSystemCapabilities,
+  postLabelCorrection,
 } from "../api/client";
 import { StatusBadge } from "../components/ui/StatusBadge";
+import { MlStatusPanel } from "../components/MlStatusPanel";
 import "./LiveControlPage.css";
 
 const POLL_OPTIONS = [1, 2, 5, 10, 30];
@@ -235,6 +237,8 @@ export function LiveControlPage() {
         )}
       </section>
 
+      <MlStatusPanel />
+
       <section className="live-control-page__section live-control-page__safety">
         <h2>Safety and scope</h2>
         <div className="safety-notice">
@@ -314,6 +318,22 @@ function policyFor(trafficClass) {
   return "Priority";
 }
 
+const VALID_LABELS = ["call", "game", "stream", "bulk"];
+
+async function handleWrongLabel(clientId, currentClass) {
+  if (!clientId) return;
+  const label = window.prompt(
+    "Correct the traffic class (call, game, stream, bulk):",
+    VALID_LABELS.includes(currentClass) ? currentClass : "",
+  );
+  if (!label || !VALID_LABELS.includes(label)) return;
+  try {
+    await postLabelCorrection(clientId, { corrected_label: label });
+  } catch {
+    // Corrections are best-effort; the store accepts them when the backend is up.
+  }
+}
+
 function ClientCard({ observation, score }) {
   const metadata = observation.metadata || {};
   const qoe = score?.score;
@@ -374,6 +394,21 @@ function ClientCard({ observation, score }) {
             {policyFor(trafficClass)}
           </StatusBadge>
         </span>
+      </div>
+      <div className="client-card__classifier">
+        <span className="client-card__classifier-source">
+          {score?.class_source === "ml_classifier"
+            ? `ML${score?.classifier_confidence != null ? ` ${(score.classifier_confidence * 100).toFixed(0)}%` : ""}`
+            : score?.class_source === "scenario_declared"
+              ? "scenario"
+              : "—"}
+        </span>
+        <button
+          className="client-card__correct-btn"
+          onClick={() => handleWrongLabel(metadata.client_id, trafficClass)}
+        >
+          wrong label?
+        </button>
       </div>
       <div className="client-card__qoe">
         <div className="client-card__qoe-header">

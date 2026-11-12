@@ -1,0 +1,5 @@
+# ML dependencies used by the live capacity-forecast service.
+# Runtime application dependencies are managed in the project virtualenv.
+lightgbm==4.7.0
+numpy==2.5.4
+scipy==1.18.1

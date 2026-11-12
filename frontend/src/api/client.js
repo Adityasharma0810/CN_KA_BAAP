@@ -229,3 +229,28 @@ export const getModelIntelligence = ({ signal } = {}) =>
   DEMO_MODE
     ? demoResponse(demo.getModelIntelligence(), signal)
     : Promise.resolve(null);
+
+export const getForecastCurrent = ({ signal } = {}) =>
+  DEMO_MODE
+    ? demoResponse(demo.getForecastCurrent(), signal)
+    : request("/api/v1/forecast/current", { signal });
+
+export const getForecastHistory = ({ signal } = {}) =>
+  DEMO_MODE
+    ? demoResponse(demo.getForecastHistory(), signal)
+    : request("/api/v1/forecast/history", { signal });
+
+export const getClassifierStatus = ({ signal } = {}) =>
+  DEMO_MODE
+    ? demoResponse(demo.getClassifierStatus(), signal)
+    : request("/api/v1/classifier/status", { signal });
+
+export const postLabelCorrection = (clientId, body = {}, { signal } = {}) =>
+  DEMO_MODE
+    ? demoResponse(demo.postLabelCorrection(clientId, body), signal)
+    : request(`/api/v1/clients/${encodeURIComponent(clientId)}/label-correction`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal,
+      });

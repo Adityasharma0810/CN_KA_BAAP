@@ -12,6 +12,8 @@ from backend.app.models.qoe_schemas import (
     QoEInput,
 )
 from backend.app.models.schemas import TelemetryObservation
+from backend.app.services.capacity_service import build_capacity_estimate
+from backend.app.services.classifier_service import classify as classify_traffic
 from backend.app.services.lab_accounting_service import lab_accounting_service
 from backend.app.services.observation_query_service import (
     _shared_store,
@@ -53,11 +55,21 @@ def _score(
     client_id = observation.metadata.client_id
     assert client_id is not None
     slot = slots.get(client_id)
-    traffic_class = profiles.get(slot or -1)
+    declared = profiles.get(slot or -1)
     if class_started_at is not None and observation.metadata.observed_at < class_started_at:
-        traffic_class = None
-    class_source = "scenario_declared" if traffic_class is not None else "unclassified"
-    traffic_class = traffic_class or "unknown"
+        declared = None
+    # Lab-derived classifier; falls back to the scenario-declared class when the
+    # model is unavailable or its confidence is below threshold.
+    ml_class, ml_confidence, ml_available = classify_traffic(observation)
+    if ml_available and ml_class is not None and ml_class != "unknown":
+        traffic_class = ml_class
+        class_source = "ml_classifier"
+        classifier_confidence = ml_confidence
+    else:
+        traffic_class = declared or "unknown"
+        class_source = "scenario_declared" if declared is not None else "unclassified"
+        classifier_confidence = ml_confidence if ml_available else None
+    declared_class = declared
     active_flow_count = len(profiles)
     result = score_qoe(
         traffic_class,
@@ -83,6 +95,8 @@ def _score(
         client_id=client_id,
         traffic_class=traffic_class,
         class_source=class_source,
+        declared_class=declared_class,
+        classifier_confidence=classifier_confidence,
         score=result.score,
         band=result.band,
         observed_at=observed_at,
@@ -130,6 +144,14 @@ def build_current_qoe(*, requested_at: datetime | None = None) -> QoECurrentResp
     else:
         history_by_client = {}
         aggregates = []
+    # Capacity for bulk fair-share: Kalman estimate over aggregate history
+    # (oldest first), smoother and bottleneck-aware than a single throughput
+    # sample.  None when there is no aggregate history yet.
+    capacity_mbps = (
+        build_capacity_estimate(reversed(aggregates)).capacity_mbps
+        if aggregates
+        else None
+    )
     scores = []
     for item in current.observations:
         observation = item.observation
@@ -137,30 +159,14 @@ def build_current_qoe(*, requested_at: datetime | None = None) -> QoECurrentResp
         if client_id is None:
             continue
         history = history_by_client.get(client_id, [])[:5]
-        capacity_observation = next(
-            (
-                item
-                for item in aggregates
-                if item.metadata.observed_at == observation.metadata.observed_at
-            ),
-            None,
-        )
         scores.append(
             _score(
                 observation,
                 history,
                 profiles,
                 slots,
-                (
-                    capacity_observation.download_mbps
-                    if capacity_observation is not None
-                    else None
-                ),
-                (
-                    capacity_observation.metadata.observed_at
-                    if capacity_observation is not None
-                    else now
-                ),
+                capacity_mbps,
+                now,
                 class_started_at,
             )
         )
