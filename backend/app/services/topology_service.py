@@ -326,12 +326,12 @@ class TopologyService:
 
     def _open_store(self) -> "MetricsStore | None":
         """Return a shared MetricsStore for this request, or None if unavailable."""
-        from network.telemetry.metrics_store import MetricsStore as _MS
+        from backend.app.services.observation_query_service import _shared_store
         path = self._db_path or database_path()
         if not path.exists():
             return None
         try:
-            return _MS(path)
+            return _shared_store(path, self._db_path)
         except Exception:
             _LOGGER.exception("topology could not open MetricsStore")
             return None
@@ -525,7 +525,7 @@ class TopologyService:
 
     def _application_status(self, store: "MetricsStore | None" = None) -> SourceStatus:
         try:
-            health = build_observation_health(self._db_path)
+            health = build_observation_health(self._db_path, store=store)
         except Exception:
             _LOGGER.exception("topology application health unavailable")
             return SourceStatus(

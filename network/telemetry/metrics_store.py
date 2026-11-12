@@ -11,6 +11,7 @@ import ipaddress
 import math
 import re
 import sqlite3
+import threading
 
 from datetime import datetime, timezone
 from pathlib import Path
@@ -444,6 +445,22 @@ def _is_corrupt_database_error(error):
     )
 
 
+class _PooledReadConnection:
+    __slots__ = ("_conn",)
+
+    def __init__(self, conn: sqlite3.Connection):
+        object.__setattr__(self, "_conn", conn)
+
+    def close(self) -> None:
+        pass
+
+    def __getattr__(self, name: str):
+        return getattr(self._conn, name)
+
+    def __setattr__(self, name: str, value):
+        setattr(self._conn, name, value)
+
+
 class MetricsStore:
     """SQLite storage for aggregate network metrics."""
 
@@ -502,35 +519,51 @@ class MetricsStore:
         finally:
             connection.close()
 
-
-
     def __init__(self, db_path=DEFAULT_DB_PATH):
         self.db_path = Path(db_path)
-
         self.db_path.parent.mkdir(
             parents=True,
             exist_ok=True
         )
-
+        self._local = threading.local()
         self.initialize()
 
-    def _connect(self, *, write: bool = False):
-        connection = sqlite3.connect(str(self.db_path), timeout=5.0)
+    def _create_connection(self, *, write: bool = False) -> sqlite3.Connection:
+        connection = sqlite3.connect(
+            str(self.db_path),
+            timeout=5.0,
+            isolation_level=None,
+        )
         connection.row_factory = sqlite3.Row
+        connection.execute(f"PRAGMA busy_timeout = {'5000' if write else '2000'}")
         connection.execute("PRAGMA foreign_keys = ON")
-        # WAL mode lets readers proceed concurrently with the writer so the
-        # lab-ingest worker's BEGIN IMMEDIATE write no longer blocks API reads.
-        connection.execute("PRAGMA journal_mode = WAL")
-        # Raise the autocheckpoint threshold so the WAL file is only flushed
-        # back to the main database file every ~2000 pages (≈8 MB) instead of
-        # the default 1000.  This reduces the frequency of checkpoint stalls
-        # that briefly block all connections.
+        connection.execute("PRAGMA synchronous = NORMAL")
         connection.execute("PRAGMA wal_autocheckpoint = 2000")
-        # Reads use a short busy_timeout so an API response returns promptly
-        # even in the unlikely event of a checkpoint.  Writes keep a longer
-        # timeout so the ingest worker can retry safely.
-        connection.execute(f"PRAGMA busy_timeout = {'5000' if write else '300'}")
+        if write:
+            connection.execute("PRAGMA journal_mode = WAL")
         return connection
+
+    def _connect(self, *, write: bool = False):
+        if write:
+            return self._create_connection(write=True)
+        conn = getattr(self._local, "conn", None)
+        if conn is None:
+            conn = self._create_connection(write=False)
+            self._local.conn = conn
+        return _PooledReadConnection(conn)
+
+    def close(self) -> None:
+        if hasattr(self, "_local"):
+            conn = getattr(self._local, "conn", None)
+            if conn is not None:
+                self._local.conn = None
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+    def __del__(self) -> None:
+        self.close()
 
     def initialize(self):
         """Create the legacy table, then apply pending schema migrations.

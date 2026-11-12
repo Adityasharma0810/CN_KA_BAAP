@@ -41,6 +41,16 @@ _DEFAULT_AGGREGATE_SOURCES = (
 )
 
 _QUERY_ERRORS = (StorageError, sqlite3.Error, OSError, ValueError)
+_DEFAULT_STORE: MetricsStore | None = None
+
+
+def _shared_store(path: Path, explicit_db_path: Path | None) -> MetricsStore:
+    global _DEFAULT_STORE
+    if explicit_db_path is not None:
+        return MetricsStore(path)
+    if _DEFAULT_STORE is None or _DEFAULT_STORE.db_path != path:
+        _DEFAULT_STORE = MetricsStore(path)
+    return _DEFAULT_STORE
 
 
 def utc_now() -> datetime:
@@ -187,6 +197,7 @@ def build_historical_observations(
     order: str = "newest",
     requested_at: datetime | None = None,
     client_history: bool = False,
+    _store: "MetricsStore | None" = None,
 ) -> HistoricalObservationsResponse:
     now = requested_at or utc_now()
     source_value = _value(source)
@@ -223,14 +234,14 @@ def build_historical_observations(
         raise InvalidFilterError("invalid_filter_combination")
 
     path = db_path or database_path()
-    if not path.exists():
+    if _store is None and not path.exists():
         if client_history:
             raise UnknownClientError("unknown_client")
         total_count = 0
         rows = []
     else:
         try:
-            store = MetricsStore(path)
+            store = _store if _store is not None else _shared_store(path, db_path)
             if client_history or client_id_value is not None:
                 try:
                     store.get_client(client_id_value)
@@ -361,7 +372,7 @@ def build_current_observations(
         return _empty_response(now, filters)
 
     try:
-        store = _store if _store is not None else MetricsStore(path)
+        store = _store if _store is not None else _shared_store(path, db_path)
         rows = _query_rows(
             store,
             source=source_value,

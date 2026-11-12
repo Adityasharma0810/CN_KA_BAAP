@@ -343,9 +343,18 @@ def _overall_status(
 
 def _snapshot(
     db_path: Path | None = None,
+    *,
+    store: MetricsStore | None = None,
 ) -> tuple[HealthResponse, CollectorsResponse]:
     now = _utc_now()
-    database, store = _probe_database(db_path or database_path())
+    if store is None:
+        database, store = _probe_database(db_path or database_path())
+    else:
+        database = DatabaseHealth(
+            status=ComponentStatus.HEALTHY,
+            error_code=None,
+            schema_version=store.schema_version(),
+        )
 
     collectors = [
         _probe_collector(
@@ -402,10 +411,14 @@ def _snapshot(
     return health, collector_response
 
 
-def build_observation_health(db_path: Path | None = None) -> HealthResponse:
+def build_observation_health(
+    db_path: Path | None = None,
+    *,
+    store: MetricsStore | None = None,
+) -> HealthResponse:
     """Return the versioned observation health envelope."""
 
-    health, _ = _snapshot(db_path)
+    health, _ = _snapshot(db_path, store=store)
     return health
 
 

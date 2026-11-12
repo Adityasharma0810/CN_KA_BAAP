@@ -205,3 +205,69 @@ async def test_slow_single_client_probe_does_not_delay_api_budget(tmp_path):
     assert probe_service.metrics_for_slot(1, NOW) is not None
     # Slot 2 should have a timeout error, not a missing entry.
     assert probe_service._samples[2].error_code == "probe_timeout"
+
+
+@run_async
+async def test_endpoint_reads_stay_under_500ms_during_slow_probe_and_ingest(tmp_path):
+    """Endpoints (observations and topology) must stay well under 500ms while
+    a deliberately slow fake probe runner (1.2 s) and ingest cycle run concurrently.
+    """
+    SLOW_PROBE_SLEEP = 1.2
+    db_path = tmp_path / "slow_probe_test.sqlite3"
+
+    def slow_probe_runner(*_args, **_kwargs):
+        time.sleep(SLOW_PROBE_SLEEP)
+        return completed("ok 5 5 12.0 0.4\n")
+
+    accounting = FakeAccountingForTwo()
+    probe_service = LatencyProbeService(
+        accounting=accounting,
+        clock=lambda: NOW,
+        runner=slow_probe_runner,
+        platform_name="linux",
+        probe_timeout_seconds=SLOW_PROBE_SLEEP + 0.5,
+    )
+    ingest_service = LabIngestService(
+        accounting=accounting,
+        db_path_provider=lambda: db_path,
+        clock=lambda: NOW,
+        platform_name="linux",
+        enabled=True,
+        probe_service=probe_service,
+    )
+
+    await ingest_service.collect_once()
+
+    probe_task = asyncio.create_task(probe_service.probe_once())
+    await asyncio.sleep(0.05)
+
+    from backend.app.services.observation_query_service import build_current_observations
+    from backend.app.services.topology_service import TopologyService
+
+    loop = asyncio.get_running_loop()
+    top_svc = TopologyService(db_path=db_path, clock=lambda: NOW, registry=accounting.registry)
+
+    t0 = time.monotonic()
+    obs_res = await loop.run_in_executor(
+        None,
+        lambda: build_current_observations(db_path, scope="client"),
+    )
+    t_obs = time.monotonic() - t0
+
+    t1 = time.monotonic()
+    top_res = await loop.run_in_executor(
+        None,
+        lambda: top_svc.network_topology(),
+    )
+    t_top = time.monotonic() - t1
+
+    probe_task.cancel()
+    try:
+        await probe_task
+    except (asyncio.CancelledError, Exception):
+        pass
+
+    assert t_obs < READ_BUDGET_SECONDS, f"observations read took {t_obs:.3f}s (> 500ms)"
+    assert t_top < READ_BUDGET_SECONDS, f"topology read took {t_top:.3f}s (> 500ms)"
+    assert obs_res.count == 2
+    assert len(top_res.nodes) >= 2

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from backend.app.config import database_path
 from backend.app.models.qoe_schemas import (
     QoEClientScore,
     QoECurrentResponse,
@@ -13,11 +14,13 @@ from backend.app.models.qoe_schemas import (
 from backend.app.models.schemas import TelemetryObservation
 from backend.app.services.lab_accounting_service import lab_accounting_service
 from backend.app.services.observation_query_service import (
+    _shared_store,
     build_current_observations,
     build_historical_observations,
 )
 from backend.app.services.scenario_service import scenario_service
 from ml.qoe.scorer import score_qoe
+from network.telemetry.metrics_store import MetricsStore
 
 
 _METRIC_UNITS = {
@@ -93,33 +96,40 @@ def build_current_qoe(*, requested_at: datetime | None = None) -> QoECurrentResp
     profiles = scenario_service.active_profiles
     class_started_at = scenario_service.active_started_at
     slots = _client_slots()
+    path = database_path()
+    store = _shared_store(path, None) if path.exists() else None
     current = build_current_observations(
         source="linux_namespace_lab",
         scope="client",
+        _store=store,
     )
     # We use at most 5 history points per client.  Fetch 5 × (number of
     # clients + a small buffer) instead of a flat 1000 to keep Pydantic
     # validation overhead proportional to the actual client count.
     client_count = max(len(slots), len(current.observations), 1)
     history_limit = min(client_count * 5 + 10, 100)
-    client_history = build_historical_observations(
-        source="linux_namespace_lab",
-        scope="client",
-        limit=history_limit,
-        order="newest",
-    )
-    history_by_client: dict[str, list[TelemetryObservation]] = {}
-    for row in client_history.observations:
-        identity = row.observation.metadata.client_id
-        if identity:
-            history_by_client.setdefault(identity, []).append(row.observation)
-    aggregate = build_historical_observations(
-        source="linux_gateway",
-        scope="aggregate_gateway",
-        limit=20,
-        order="newest",
-    )
-    aggregates = [item.observation for item in aggregate.observations]
+    if store is not None:
+        client_rows = store.query_history(
+            source="linux_namespace_lab",
+            scope="client",
+            limit=history_limit,
+            order="newest",
+        )
+        history_by_client: dict[str, list[TelemetryObservation]] = {}
+        for row in client_rows:
+            identity = row.observation.metadata.client_id
+            if identity:
+                history_by_client.setdefault(identity, []).append(row.observation)
+        aggregate_rows = store.get_aggregate_history(
+            source="linux_gateway",
+            scope="aggregate_gateway",
+            limit=20,
+            order="newest",
+        )
+        aggregates = [item.observation for item in aggregate_rows]
+    else:
+        history_by_client = {}
+        aggregates = []
     scores = []
     for item in current.observations:
         observation = item.observation

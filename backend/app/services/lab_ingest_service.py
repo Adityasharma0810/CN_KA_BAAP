@@ -107,6 +107,7 @@ class LabIngestService:
         self._task: asyncio.Task | None = None
         self._executor: ThreadPoolExecutor | None = None
         self._identity_configured = False
+        self._registered_client_ids: set[str] = set()
         self.last_success_at: datetime | None = None
         self.last_error_code: str | None = None
         self.enabled = self._resolve_enabled(enabled)
@@ -347,6 +348,8 @@ class LabIngestService:
 
     def _register_clients(self, store: MetricsStore) -> None:
         for client in self.accounting.inventory:
+            if client.client_id in self._registered_client_ids:
+                continue
             registered = self.accounting.registry.get(client.client_id)
             store.register_client(
                 client.client_id,
@@ -354,6 +357,7 @@ class LabIngestService:
                 environment=ObservationEnvironment.SIMULATED_LAB,
                 simulated_lab_slot=client.client_number,
             )
+            self._registered_client_ids.add(client.client_id)
 
     def _save(
         self,
