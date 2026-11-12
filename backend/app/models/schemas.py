@@ -48,6 +48,7 @@ class ObservationSource(str, Enum):
     WINDOWS_HOTSPOT = "windows_hotspot"
     LINUX_GATEWAY = "linux_gateway"
     LINUX_NAMESPACE_LAB = "linux_namespace_lab"
+    LINUX_HOTSPOT = "linux_hotspot"
     UNKNOWN = "unknown"
 
 

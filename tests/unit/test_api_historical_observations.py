@@ -80,6 +80,11 @@ def test_client_history_isolated_and_preserves_stored_values(monkeypatch, tmp_pa
     path = tmp_path / "history.sqlite3"
     _seed(path)
     monkeypatch.setenv("EB_DATABASE_PATH", str(path))
+    # The history route only serves clients a real source registered.
+    from backend.app.services.lab_accounting_service import lab_accounting_service
+
+    lab_accounting_service.registry.reset()
+    lab_accounting_service.registry.register(client_id=CLIENT_ONE)
 
     response = client.get(f"/api/v1/clients/{CLIENT_ONE}/history?order=oldest")
 

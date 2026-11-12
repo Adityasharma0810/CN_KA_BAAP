@@ -414,7 +414,14 @@ class LatencyProbeService:
             )
         except (OSError, subprocess.SubprocessError):
             return False
-        result = parse_probe_output(completed.stdout or "")
+        # Empty stdout means the helper never produced a result: the binary is
+        # missing or sudo refused to run it (no password). That is
+        # helper_missing, never an available helper — sudo diagnostics go to
+        # stderr only.
+        stdout = completed.stdout or ""
+        if not stdout.strip():
+            return False
+        result = parse_probe_output(stdout)
         if isinstance(result, tuple):
             return completed.returncode == 0
         return (

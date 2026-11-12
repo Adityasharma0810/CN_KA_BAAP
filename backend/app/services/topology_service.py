@@ -36,6 +36,7 @@ from backend.app.services.client_registry import (
     AnonymousClientRegistry,
     ClientStatus,
 )
+from backend.app.services.hotspot_client_service import hotspot_client_service
 from backend.app.services.lab_accounting_service import lab_accounting_service
 from backend.app.services.observation_query_service import (
     build_current_observations,
@@ -201,6 +202,19 @@ class TopologyService:
             now=now,
         )
 
+        # Hotspot presence clients from real detection (no traffic observations).
+        hotspot_presence = hotspot_client_service.collect()
+        hotspot_clients = hotspot_presence.get("clients", []) or []
+        hotspot_registry_by_id = {
+            client.client_id: client
+            for client in hotspot_client_service.registry.list_clients(now=now)
+        }
+        for item in hotspot_clients:
+            client_id = item.get("client_id")
+            if client_id and client_id not in hotspot_registry_by_id:
+                client = hotspot_client_service.registry.get(client_id, now=now)
+                hotspot_registry_by_id[client_id] = client
+
         nodes = [
             self._node(
                 node_id="application",
@@ -240,8 +254,11 @@ class TopologyService:
         registry_by_id = {
             client.client_id: client for client in (clients or [])
         }
+        # Merge hotspot presence clients into the shared registry view so they
+        # appear as topology nodes alongside lab clients.
+        registry_by_id.update(hotspot_registry_by_id)
         all_client_ids = sorted(
-            set(client_observations) | set(registry_by_id),
+            set(client_observations) | set(hotspot_registry_by_id) | set(registry_by_id),
             key=lambda client_id: (
                 registry_by_id[client_id].display_label
                 if client_id in registry_by_id
@@ -252,8 +269,9 @@ class TopologyService:
         for index, client_id in enumerate(all_client_ids, start=1):
             item = client_observations.get(client_id)
             client = registry_by_id.get(client_id)
+            is_hotspot = client_id in hotspot_registry_by_id
             status = self._client_status(
-                item,
+                None if is_hotspot else item,
                 client,
                 failed=lab_failed,
                 now=now,
@@ -267,14 +285,16 @@ class TopologyService:
                         if client is not None
                         else f"Client {index:02d}"
                     ),
-                    source=TopologySource.LINUX_LAB,
+                    source=TopologySource.LINUX_HOTSPOT
+                    if is_hotspot
+                    else TopologySource.LINUX_LAB,
                     status=status,
                     client_id=client_id,
                 )
             )
             links.append(
                 TopologyLink(
-                    source="linux-lab",
+                    source="hotspot-aggregate" if is_hotspot else "linux-lab",
                     target=f"client-{index:02d}",
                     relation=(
                         TopologyEdgeType.OBSERVED
@@ -306,6 +326,9 @@ class TopologyService:
             ),
             self._topology_source_status(
                 TopologySource.LINUX_LAB, lab_source_status
+            ),
+            self._topology_source_status(
+                TopologySource.LINUX_HOTSPOT, hotspot_status
             ),
             self._topology_source_status(
                 TopologySource.ANONYMOUS_REGISTRY, registry_status

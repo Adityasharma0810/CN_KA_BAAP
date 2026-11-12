@@ -1,4 +1,13 @@
-"""Product-facing anonymous client observation routes."""
+"""Product-facing anonymous client observation routes.
+
+Clients come from the real configured sources only:
+
+* the Linux namespace lab (per-client traffic measurements), and
+* Linux hotspot presence detection (devices seen on an AP-mode interface).
+
+No demo or placeholder clients are ever returned; an empty registry with no
+available source is reported honestly.
+"""
 
 import logging
 
@@ -19,6 +28,7 @@ from backend.app.models.schemas import (
     ObservationSource,
 )
 
+from backend.app.services.hotspot_client_service import hotspot_client_service
 from backend.app.services.lab_accounting_service import lab_accounting_service
 from backend.app.services.observation_query_service import (
     InvalidFilterError,
@@ -31,6 +41,9 @@ router = APIRouter(prefix="/api/v1/clients", tags=["Clients"])
 _CLIENT_ID = TypeAdapter(ClientId)
 _LOGGER = logging.getLogger(__name__)
 
+_LAB_ENVIRONMENT = ObservationEnvironment.SIMULATED_LAB
+_HOST_ENVIRONMENT = ObservationEnvironment.PHYSICAL_HOST
+
 
 def _observations_by_client(result: dict) -> dict[str, object]:
     if not result.get("available"):
@@ -42,12 +55,17 @@ def _observations_by_client(result: dict) -> dict[str, object]:
     }
 
 
-def _client_response(client, observation, *, available: bool):
+def _client_response(
+    client,
+    observation,
+    *,
+    environment: ObservationEnvironment,
+):
     return AnonymousClientResponse(
         client_id=client.client_id,
         display_label=client.display_label,
         status=client.status,
-        environment="simulated_lab",
+        environment=environment,
         first_seen_at=client.first_seen_at,
         last_seen_at=client.last_seen_at,
         stale=client.stale,
@@ -68,24 +86,81 @@ def _collect_safe():
         }
 
 
+def _hotspot_safe():
+    try:
+        return hotspot_client_service.collect()
+    except Exception:
+        _LOGGER.warning("hotspot client telemetry unavailable", exc_info=True)
+        return {
+            "available": False,
+            "clients": [],
+            "message": "Hotspot client detection is unavailable.",
+        }
+
+
+def _combined_sources() -> tuple[dict, dict]:
+    """Return the lab and hotspot collection results."""
+
+    return _collect_safe(), _hotspot_safe()
+
+
+def _envelope(lab: dict, hotspot: dict) -> tuple[ObservationSource, ObservationEnvironment, str | None]:
+    """Pick the top-level source, environment, and honest combined message."""
+
+    hotspot_available = bool(hotspot.get("available"))
+    lab_available = bool(lab.get("available"))
+
+    if hotspot_available:
+        source = ObservationSource.LINUX_HOTSPOT
+        environment = _HOST_ENVIRONMENT
+    else:
+        source = ObservationSource.LINUX_NAMESPACE_LAB
+        environment = _LAB_ENVIRONMENT
+
+    if lab_available or hotspot_available:
+        return source, environment, None
+
+    lab_message = lab.get("message") or "Linux namespace lab telemetry is unavailable."
+    hotspot_message = hotspot.get("message") or "Hotspot client detection is unavailable."
+    combined = f"{lab_message} {hotspot_message}".strip()
+    if len(combined) > 160:
+        combined = "No client telemetry source is available on this system."
+    return source, environment, combined
+
+
 @router.get("", response_model=AnonymousClientsResponse)
 def list_clients() -> AnonymousClientsResponse:
     """List registered anonymous clients without private identity metadata."""
 
-    result = _collect_safe()
-    available = bool(result.get("available"))
-    observations = _observations_by_client(result)
+    lab, hotspot = _combined_sources()
+    observations = _observations_by_client(lab)
     clients = [
-        _client_response(client, observations.get(client.client_id), available=available)
+        _client_response(
+            client,
+            observations.get(client.client_id),
+            environment=_LAB_ENVIRONMENT,
+        )
         for client in lab_accounting_service.registry.list_clients()
     ]
+    # Hotspot presence clients have no per-client traffic observation yet;
+    # latest_observation stays None instead of being fabricated.
+    clients += [
+        _client_response(
+            client,
+            None,
+            environment=_HOST_ENVIRONMENT,
+        )
+        for client in hotspot_client_service.registry.list_clients()
+    ]
+
+    source, environment, message = _envelope(lab, hotspot)
     return AnonymousClientsResponse(
         count=len(clients),
-        available=available,
+        available=bool(lab.get("available")) or bool(hotspot.get("available")),
         clients=clients,
-        source="linux_namespace_lab",
-        environment="simulated_lab",
-        message=None if available else "Linux namespace lab telemetry is unavailable.",
+        source=source,
+        environment=environment,
+        message=message,
     )
 
 
@@ -101,21 +176,38 @@ def get_client(
 
     try:
         _CLIENT_ID.validate_python(client_id)
-        client = lab_accounting_service.registry.get(client_id)
     except ValueError as error:
         raise HTTPException(status_code=422, detail="invalid_client_id") from error
-    except KeyError as error:
-        raise HTTPException(status_code=404, detail="unknown_client") from error
 
-    result = _collect_safe()
-    available = bool(result.get("available"))
-    observation = _observations_by_client(result).get(client_id)
-    response = _client_response(client, observation, available=available)
+    try:
+        client = lab_accounting_service.registry.get(client_id)
+        environment = _LAB_ENVIRONMENT
+    except KeyError:
+        try:
+            client = hotspot_client_service.registry.get(client_id)
+            environment = _HOST_ENVIRONMENT
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="unknown_client") from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail="invalid_client_id") from error
+
+    lab, hotspot = _combined_sources()
+    available = bool(lab.get("available")) or bool(hotspot.get("available"))
+    if environment == _LAB_ENVIRONMENT:
+        observation = _observations_by_client(lab).get(client_id)
+        source = lab.get("source") or ObservationSource.LINUX_NAMESPACE_LAB
+        message = None if available else lab.get("message")
+    else:
+        observation = None
+        source = hotspot.get("source") or ObservationSource.LINUX_HOTSPOT
+        message = None if available else hotspot.get("message")
+
+    response = _client_response(client, observation, environment=environment)
     return AnonymousClientDetailResponse(
         **response.model_dump(),
         available=available,
-        source="linux_namespace_lab",
-        message=None if available else "Linux namespace lab telemetry is unavailable.",
+        source=source,
+        message=message,
     )
 
 
@@ -134,6 +226,19 @@ def client_history(
     offset: Annotated[int, Query(ge=0)] = 0,
     order: Annotated[str, Query(pattern=r"^(oldest|newest)$")] = "newest",
 ) -> HistoricalObservationsResponse:
+    """Return only this anonymous client's stored history."""
+
+    try:
+        _CLIENT_ID.validate_python(client_id)
+        lab_accounting_service.registry.get(client_id)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail="invalid_client_id") from error
+    except KeyError:
+        try:
+            hotspot_client_service.registry.get(client_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="unknown_client") from error
+
     try:
         return build_historical_observations(
             source=source,

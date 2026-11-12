@@ -29,6 +29,7 @@ class TopologySource(str, Enum):
     WINDOWS_HOTSPOT = "windows_hotspot"
     LINUX_GATEWAY = "linux_gateway"
     LINUX_LAB = "linux_lab"
+    LINUX_HOTSPOT = "linux_hotspot"
     ANONYMOUS_REGISTRY = "anonymous_registry"
 
 
@@ -137,7 +138,7 @@ class TopologyResponse(BaseModel):
     observed_at: datetime
     nodes: list[TopologyNode] = Field(max_length=105)
     links: list[TopologyLink] = Field(max_length=105)
-    sources: list[TopologySourceStatus] = Field(max_length=6)
+    sources: list[TopologySourceStatus] = Field(max_length=7)
 
     @field_validator("observed_at")
     @classmethod

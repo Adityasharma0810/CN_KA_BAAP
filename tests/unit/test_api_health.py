@@ -59,6 +59,12 @@ def test_health_reports_application_database_and_registry(monkeypatch, tmp_path)
     _use_platform(monkeypatch, "Linux")
     monkeypatch.setattr(lab_ingest_service, "enabled", False)
     monkeypatch.setattr(lab_ingest_service, "last_error_code", "lab_not_available")
+    # The registry only holds clients that a real source registered; add one
+    # explicitly so the registry component has something to report.
+    from backend.app.services.lab_accounting_service import lab_accounting_service
+
+    lab_accounting_service.registry.reset()
+    lab_accounting_service.registry.register()
 
     response = client.get("/api/v1/health")
 

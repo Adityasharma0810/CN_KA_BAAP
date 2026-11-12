@@ -158,6 +158,25 @@ class AnonymousClientRegistry:
             record.explicit_offline = True
             return self._public_record(record, self._coerce_utc(now))
 
+    def mark_online(self, client_id: str, *, now: datetime | None = None) -> AnonymousClient:
+        """Record a presence sighting without requiring a telemetry observation.
+
+        Presence collectors (for example hotspot client detection) can prove a
+        device is reachable but have no per-client traffic measurement to
+        report. Marking a sighting keeps first/last-seen state honest without
+        fabricating an observation.
+        """
+
+        observed_at = self._coerce_utc(now)
+        with self._lock:
+            record = self._require_record(client_id)
+            if record.first_seen_at is None:
+                record.first_seen_at = observed_at
+            if record.last_seen_at is None or observed_at >= record.last_seen_at:
+                record.last_seen_at = observed_at
+            record.explicit_offline = False
+            return self._public_record(record, observed_at)
+
     def associate_address(
         self,
         client_id: str,
