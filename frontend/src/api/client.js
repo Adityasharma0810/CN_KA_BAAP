@@ -5,11 +5,13 @@ const API_BASE = (import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000")
 const REQUEST_TIMEOUT_MS = 10000;
 
 /**
- * Demo mode is on unless explicitly disabled with VITE_DEMO_MODE=false.
- * When enabled, every call resolves with a live, clock-driven demo snapshot
- * so the UI always looks populated and updates every second.
+ * Data mode: "live" (default) or "demo".
+ * Set VITE_DATA_MODE=demo in the environment to enable demo mode.
+ * Legacy VITE_DEMO_MODE=false is treated as VITE_DATA_MODE=live.
  */
-export const DEMO_MODE = import.meta.env.VITE_DEMO_MODE !== "false";
+export const DEMO_MODE =
+  (import.meta.env.VITE_DATA_MODE ?? "live") === "demo" &&
+  import.meta.env.VITE_DEMO_MODE !== "false";
 
 export class ApiError extends Error {
   constructor(message, kind, status = null, details = {}) {
@@ -212,10 +214,18 @@ export const collectHotspotMeasurement = (options = {}) =>
       });
 
 /**
- * Presentation-only comparison and model telemetry are always generated from
- * the demo stream so these pages remain fully populated in demo mode.
+ * Comparison and model-intelligence views have no live backend route yet
+ * (A/B comparison lands in Stage 4, ML wiring in Stage 2). In demo mode they
+ * return the clock-driven demo stream; in live mode they resolve to null so
+ * the pages render their existing placeholder states ("Syncing…", "—", empty
+ * grids) and no demo numbers are mixed into live mode.
  */
-export const getComparison = () => demoResponse(demo.getComparison());
+export const getComparison = ({ signal } = {}) =>
+  DEMO_MODE
+    ? demoResponse(demo.getComparison(), signal)
+    : Promise.resolve(null);
 
-export const getModelIntelligence = () =>
-  demoResponse(demo.getModelIntelligence());
+export const getModelIntelligence = ({ signal } = {}) =>
+  DEMO_MODE
+    ? demoResponse(demo.getModelIntelligence(), signal)
+    : Promise.resolve(null);

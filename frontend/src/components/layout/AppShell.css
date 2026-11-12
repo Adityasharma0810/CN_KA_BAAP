@@ -365,3 +365,40 @@
     color: var(--color-accent);
   }
 }
+
+/* Data-mode badge (LIVE / DEMO DATA) */
+.app-shell__data-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 10px;
+  height: 28px;
+  border-radius: 14px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  user-select: none;
+}
+
+.app-shell__data-badge--live {
+  background: rgba(34, 197, 94, 0.15);
+  color: #16a34a;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.app-shell__data-badge--demo {
+  background: rgba(234, 179, 8, 0.15);
+  color: #ca8a04;
+  border: 1px solid rgba(234, 179, 8, 0.3);
+}
+
+/* Unreachable banner (live mode only, backend down) */
+.app-shell__unreachable-banner {
+  margin: 0 24px 0 24px;
+  padding: 8px 14px;
+  background: rgba(234, 179, 8, 0.12);
+  border: 1px solid rgba(234, 179, 8, 0.4);
+  border-radius: 6px;
+  color: #92400e;
+  font-size: 13px;
+  font-weight: 500;
+}

@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import "./AppShell.css";
 import { StatusBadge, StatusBadges } from "../ui/StatusBadge";
-import { getGatewayStatus, getHealth, getSystemCapabilities } from "../../api/client";
+import { getGatewayStatus, getHealth, getSystemCapabilities, DEMO_MODE } from "../../api/client";
 
 /**
  * AppShell - Main layout with sidebar navigation for three pages
@@ -13,9 +13,12 @@ export function AppShell({ children }) {
   const [backendStatus, setBackendStatus] = useState("checking");
   const [gatewayStatus, setGatewayStatus] = useState("unknown");
   const [platform, setPlatform] = useState("checking");
+  const [backendUnreachable, setBackendUnreachable] = useState(false);
   const location = useLocation();
 
   useEffect(() => {
+    // In demo mode the shell still shows static status; skip live polling.
+    if (DEMO_MODE) return;
     let disposed = false;
     let timer;
     let controller;
@@ -31,14 +34,16 @@ export function AppShell({ children }) {
       if (disposed || signal.aborted) return;
 
       const [health, gateway, capabilities] = results;
-      setBackendStatus(resolveStatus(health));
+      const resolved = resolveStatus(health);
+      setBackendStatus(resolved);
+      setBackendUnreachable(resolved === "disconnected");
       setGatewayStatus(resolveStatus(gateway, "disconnected"));
       setPlatform(
         capabilities.status === "fulfilled"
           ? capabilities.value.platform || "unknown"
           : "unavailable",
       );
-      timer = window.setTimeout(refreshStatus, 1000);
+      timer = window.setTimeout(refreshStatus, 5000);
     };
 
     refreshStatus();
@@ -162,6 +167,12 @@ export function AppShell({ children }) {
             </h1>
           </div>
           <div className="app-shell__header-right">
+            <span
+              className={`app-shell__data-badge app-shell__data-badge--${DEMO_MODE ? "demo" : "live"}`}
+              aria-label={DEMO_MODE ? "Demo data mode" : "Live data mode"}
+            >
+              {DEMO_MODE ? "DEMO DATA" : "● LIVE"}
+            </span>
             <button className="app-shell__header-btn" aria-label="Settings">
               <SettingsIcon />
             </button>
@@ -170,6 +181,12 @@ export function AppShell({ children }) {
             </button>
           </div>
         </header>
+
+        {!DEMO_MODE && backendUnreachable && (
+          <div className="app-shell__unreachable-banner" role="alert">
+            ⚠ Backend unreachable — showing last known data
+          </div>
+        )}
 
         <main className="app-shell__content" role="main">
           {children}
