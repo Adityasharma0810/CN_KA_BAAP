@@ -1,32 +1,27 @@
-import * as demo from "./demoData";
+/**
+ * Experience Budget production API client.
+ *
+ * Every call goes to the real backend API. Demo/simulation data is never
+ * returned from this module. Simulated data lives exclusively in the
+ * Simulation tab and is imported there directly.
+ *
+ * Missing/unavailable data is reported honestly (empty arrays, null values,
+ * error kinds) — never fabricated.
+ */
 
 const API_BASE = (import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000")
   .replace(/\/+$/, "");
 const REQUEST_TIMEOUT_MS = 10000;
 
-/**
- * Demo mode is on unless explicitly disabled with VITE_DEMO_MODE=false.
- * When enabled, every call resolves with a live, clock-driven demo snapshot
- * so the UI always looks populated and updates every second.
- */
-export const DEMO_MODE = import.meta.env.VITE_DEMO_MODE !== "false";
-
 export class ApiError extends Error {
   constructor(message, kind, status = null, details = {}) {
     super(message);
     this.name = "ApiError";
-    this.kind = kind;
+    this.kind = kind; // "http" | "timeout" | "aborted" | "network"
     this.status = status;
     this.code = details.code || null;
     this.installCommand = details.installCommand || null;
   }
-}
-
-function demoResponse(value, signal) {
-  if (signal?.aborted) {
-    return Promise.reject(new ApiError("The request was cancelled.", "aborted"));
-  }
-  return Promise.resolve(value);
 }
 
 async function request(path, { signal, ...options } = {}) {
@@ -104,118 +99,115 @@ function queryString(params = {}) {
 }
 
 export const getHealth = ({ signal } = {}) =>
-  DEMO_MODE
-    ? demoResponse(demo.getHealth(), signal)
-    : request("/api/v1/health", { signal });
+  request("/api/v1/health", { signal });
 
 export const getCollectorHealth = ({ signal } = {}) =>
-  DEMO_MODE
-    ? demoResponse(demo.getCollectorHealth(), signal)
-    : request("/api/v1/health/collectors", { signal });
+  request("/api/v1/health/collectors", { signal });
 
 export const getClients = ({ signal } = {}) =>
-  DEMO_MODE
-    ? demoResponse(demo.getClients(), signal)
-    : request("/api/v1/clients", { signal });
+  request("/api/v1/clients", { signal });
 
 export const getClient = (clientId, { signal } = {}) =>
-  DEMO_MODE
-    ? demoResponse(demo.getClient(clientId), signal)
-    : request(`/api/v1/clients/${encodeURIComponent(clientId)}`, { signal });
+  request(`/api/v1/clients/${encodeURIComponent(clientId)}`, { signal });
 
 export const getCurrentObservations = (params = {}, { signal } = {}) =>
-  DEMO_MODE
-    ? demoResponse(demo.getCurrentObservations(params), signal)
-    : request(`/api/v1/observations/current${queryString(params)}`, { signal });
+  request(`/api/v1/observations/current${queryString(params)}`, { signal });
 
 export const getObservationHistory = (params = {}, { signal } = {}) =>
-  DEMO_MODE
-    ? demoResponse(demo.getObservationHistory(params), signal)
-    : request(`/api/v1/observations/history${queryString(params)}`, { signal });
+  request(`/api/v1/observations/history${queryString(params)}`, { signal });
 
 export const getClientHistory = (clientId, params = {}, { signal } = {}) =>
-  DEMO_MODE
-    ? demoResponse(demo.getClientHistory(clientId, params), signal)
-    : request(
-        `/api/v1/clients/${encodeURIComponent(clientId)}/history${queryString(params)}`,
-        { signal },
-      );
+  request(
+    `/api/v1/clients/${encodeURIComponent(clientId)}/history${queryString(params)}`,
+    { signal },
+  );
 
 export const getGatewayStatus = ({ signal } = {}) =>
-  DEMO_MODE
-    ? demoResponse(demo.getGatewayStatus(), signal)
-    : request("/api/v1/gateway/status", { signal });
+  request("/api/v1/gateway/status", { signal });
 
 export const getTopology = ({ signal } = {}) =>
-  DEMO_MODE
-    ? demoResponse(demo.getTopology(), signal)
-    : request("/api/v1/network/topology", { signal });
+  request("/api/v1/network/topology", { signal });
 
 export const getSystemCapabilities = ({ signal } = {}) =>
-  DEMO_MODE
-    ? demoResponse(demo.getSystemCapabilities(), signal)
-    : request("/api/v1/system/capabilities", { signal });
+  request("/api/v1/system/capabilities", { signal });
 
 export const getScenarioCatalog = ({ signal } = {}) =>
-  DEMO_MODE
-    ? demoResponse(demo.getScenarioCatalog(), signal)
-    : request("/api/v1/scenarios", { signal });
+  request("/api/v1/scenarios", { signal });
 
 export const startScenario = (scenarioId, body = {}, { signal } = {}) =>
-  DEMO_MODE
-    ? demoResponse(demo.startScenario(scenarioId, body), signal)
-    : request(`/api/v1/scenarios/${encodeURIComponent(scenarioId)}/start`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        signal,
-      });
+  request(`/api/v1/scenarios/${encodeURIComponent(scenarioId)}/start`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  });
 
 export const stopScenario = ({ signal } = {}) =>
-  DEMO_MODE
-    ? demoResponse(demo.stopScenario(), signal)
-    : request("/api/v1/scenarios/stop", { method: "POST", signal });
+  request("/api/v1/scenarios/stop", { method: "POST", signal });
 
 export const getCurrentQoe = ({ signal } = {}) =>
-  DEMO_MODE
-    ? demoResponse(demo.getCurrentQoe(), signal)
-    : request("/api/v1/qoe/current", { signal });
+  request("/api/v1/qoe/current", { signal });
 
 export const getQoeHistory = (params = {}, { signal } = {}) =>
-  DEMO_MODE
-    ? demoResponse(demo.getQoeHistory(params), signal)
-    : request(`/api/v1/qoe/history${queryString(params)}`, { signal });
+  request(`/api/v1/qoe/history${queryString(params)}`, { signal });
 
 export const collectHostMeasurement = (options = {}) =>
-  DEMO_MODE
-    ? demoResponse(demo.getCurrentObservations({ scope: "client" }))
-    : request("/api/v1/monitoring/collect", {
-        ...options,
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          adapter: "Wi-Fi",
-          sample_interval_seconds: 1,
-          quality_target: "1.1.1.1",
-          quality_count: 5,
-        }),
-      });
+  request("/api/v1/monitoring/collect", {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      adapter: "Wi-Fi",
+      sample_interval_seconds: 1,
+      quality_target: "1.1.1.1",
+      quality_count: 5,
+      ...options,
+    }),
+  });
 
 export const collectHotspotMeasurement = (options = {}) =>
-  DEMO_MODE
-    ? demoResponse(demo.getCurrentObservations({ scope: "client" }))
-    : request("/api/v1/monitoring/hotspot/collect", {
-        ...options,
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sample_interval_seconds: 1 }),
-      });
+  request("/api/v1/monitoring/hotspot/collect", {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sample_interval_seconds: 1, ...options }),
+  });
 
-/**
- * Presentation-only comparison and model telemetry are always generated from
- * the demo stream so these pages remain fully populated in demo mode.
- */
-export const getComparison = () => demoResponse(demo.getComparison());
+export const login = (credentials) =>
+  request("/api/v1/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(credentials),
+  });
 
-export const getModelIntelligence = () =>
-  demoResponse(demo.getModelIntelligence());
+export const getIntents = (gatewayId, { signal } = {}) =>
+  request(`/api/v1/gateways/${encodeURIComponent(gatewayId)}/intents`, { signal });
+
+export const getDevices = ({ signal } = {}) =>
+  request("/api/v1/devices", { signal });
+
+export const getDiagnosis = (gatewayId, { signal } = {}) =>
+  request(`/api/v1/gateways/${encodeURIComponent(gatewayId)}/diagnosis`, { signal });
+
+export const getForecast = (gatewayId, { signal } = {}) =>
+  request(`/api/v1/gateways/${encodeURIComponent(gatewayId)}/capacity/forecast`, { signal });
+
+export const addSample = (gatewayId, downloadMbps, { signal } = {}) =>
+  request(
+    `/api/v1/capacity/${encodeURIComponent(gatewayId)}/samples`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ download_mbps: downloadMbps }),
+      signal,
+    },
+  );
+
+export const getDecisions = ({ signal } = {}) =>
+  request("/api/v1/decisions", { signal });
+
+export const getModelRegistry = ({ signal } = {}) =>
+  request("/api/v1/models", { signal });
+
+export const getMultiWAN = (gatewayId, { signal } = {}) =>
+  request(`/api/v1/gateways/${encodeURIComponent(gatewayId)}/multiwan`, { signal });

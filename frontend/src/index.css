@@ -1,5 +1,7 @@
 /* Experience Budget - Global Styles */
 @import './styles/tokens.css';
+@import './pages/shared.css';
+@import './components/layout/AppShell.css';
 
 :root {
   font-family: var(--font-family-base);

@@ -1,6 +1,6 @@
 """Per-client QoE proxy score endpoints."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
@@ -46,3 +46,10 @@ def qoe_history(
         raise HTTPException(status_code=422, detail=error.code) from error
     except ObservationQueryError as error:
         raise HTTPException(status_code=503, detail=error.code) from error
+
+
+@router.get("/qoe/formulas")
+def qoe_formulas():
+    from backend.app.ml.qoe import SCORE_FORMULAS
+
+    return {"formulas": SCORE_FORMULAS, "note": "Operational QoE proxies, not standardized MOS."}

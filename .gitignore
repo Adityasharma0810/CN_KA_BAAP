@@ -9,4 +9,6 @@ node_modules/
 dist/
 # Local monitoring data
 data/*.sqlite3
+data/*.sqlite3-wal
+data/*.sqlite3-shm
 data/*.db

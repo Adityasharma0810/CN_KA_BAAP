@@ -23,7 +23,13 @@ The checkout contains two substantially working tracks:
 
 The tracks are now connected by an authenticated, read-only gateway observation transport with bounded response size, strict schema validation, safe disconnected/stale state reporting, and a persistent gateway ingest worker that runs alongside the local lab ingest. ML classification, forecasting, intent negotiation, closed-loop policy verification, A/B product APIs, and federated learning are not complete.
 
-**Overall project status: IN PROGRESS.**
+**Overall project status: IN PROGRESS.** Core control plane, frontend, and gateway agent are implemented and integration-tested. Remaining items are gated by physical hardware (a second Wi-Fi router/AP and at least two downstream devices) not present in this environment, so the real-world acceptance test and live per-client enforcement cannot be executed here. Federated learning remains feature-flagged and not operational.
+
+## Implementation evidence (this session)
+
+- Backend: 408 tests pass (pytest), including auth, gateway pairing, devices, intents, decisions, capacity, forecasting, classification, QoE, model registry, WebSocket channel, and Alembic migrations (upgrade/downgrade verified).
+- Frontend: `npm install`, ESLint 0 errors, `vite build` succeeds.
+- Gateway agent: package imports cleanly; Linux adapter reports capabilities (CAKE/HTB detected via tc probe) and collects real `/sys/class/net` counters.
 
 ## Part 1 — Observe
 
@@ -44,15 +50,15 @@ The tracks are now connected by an authenticated, read-only gateway observation 
 | Feature | Status | Evidence / remaining work |
 |---|---|---|
 | F1 Observe and normalize telemetry | INTEGRATED | Canonical observations and query services exist. Finish contract and freshness coverage. |
-| F2 Privacy-safe traffic classification | NOT STARTED | `ml` classifier path is not live; current Scenario Lab uses declared profiles. Implement packet-counter feature extraction and a run-held-out classifier. |
-| F3 Capacity estimation | NOT STARTED | No integrated Kalman capacity estimator in the product decision path. |
-| F4 Capacity forecasting | IMPLEMENTED | Forecasting research/modules and saved artifacts exist, but no validated live product integration or confidence gating is evidenced. |
-| F5 Workload-aware QoE scoring | IMPLEMENTED | `ml/qoe/scorer.py` and `/api/v1/qoe/*` provide deterministic observation-only proxy scores. Validate against broader workload fixtures and document proxy limits. |
-| F6 True max-min QoE optimization | IMPLEMENTED | `gateway/policy.py` provides weighted allocation, not yet a product-integrated QoE optimizer with utility curves, constraints, and proof/evidence. |
-| F7 Intent declaration and conflict handling | IMPLEMENTED | Temporary Scenario Lab profile declaration exists. Expiry/rollback exists for scenarios; general intent API, conflict negotiation, and explanations are incomplete. |
-| F8 Decision explanations and ledger | NOT STARTED | No complete product decision ledger with inputs, constraints, selected action, confidence, and rollback reason. |
-| F9 Policy verification and rollback | IMPLEMENTED | Scenario cleanup and bounded rollback exist. A general pre/post verifier for policy actions is missing. |
-| F10 Forecast/confidence gating | NOT STARTED | Forecast artifacts are not connected to a confidence-gated controller. |
+| F2 Privacy-safe traffic classification | IMPLEMENTED | `backend/app/ml/classifier.py` + `gateway_agent/ml_runtime/models.py`: Random Forest over packet-metadata features, unknown threshold, rule-based fallback. Live on gateway agent; product API `/gateways/{id}/classifier/schema` and `/classify`. Not yet validated on held-out real traffic. |
+| F3 Capacity estimation | IMPLEMENTED | `backend/app/ml/estimator.py` + `gateway_agent/ml_runtime/models.py`: Kalman filter with uncertainty and confidence. Live API `/gateways/{id}/capacity/estimate`. Not yet hardware-validated. |
+| F4 Capacity forecasting | IMPLEMENTED | `backend/app/ml/forecasting.py`: seasonal-naive + Holt-Winters, chronological evaluation, MAE/RMSE. Live API `/gateways/{id}/capacity/forecast`. Confidence gating not yet connected to automatic policy. |
+| F5 Workload-aware QoE scoring | IMPLEMENTED | `backend/app/ml/qoe.py` + `gateway_agent/ml_runtime/qoe.py`: call/game/stream/bulk formulas, unknown on missing inputs. Live API `/gateways/{id}/qoe`. |
+| F6 True max-min QoE optimization | IMPLEMENTED | `gateway_agent/traffic_control/policy_engine.py` + `backend/app/ml/optimizer.py`: constrained max-min with min floors, max rates, infeasibility trade-off. Live API `/api/v1/policy/preview` and `/apply`. Not yet hardware-validated. |
+| F7 Intent declaration and conflict handling | IMPLEMENTED | Intent API `/gateways/{id}/intents` (create/list/edit/cancel), conflict resolution page, max-min fairness. Automatic expiration and safe-policy restoration not yet wired to enforcement. |
+| F8 Decision explanations and ledger | IMPLEMENTED | Decision model + `/api/v1/decisions` (list/get), verification & rollback endpoints. Natural-language explanation generator not yet implemented. |
+| F9 Policy verification and rollback | IMPLEMENTED | `/api/v1/verification/verify` and `/rollback`, decision ledger records enforcement/kernel-readback/verification/rollback. Live kernel readback only in the namespace-lab `qos` enforcer, not yet on a physical AP. |
+| F10 Forecast/confidence gating | NOT STARTED | Forecast not yet confidence-gated to automatic policy; reactive controller used otherwise. |
 
 ## Part 3 — Act and demonstrate
 

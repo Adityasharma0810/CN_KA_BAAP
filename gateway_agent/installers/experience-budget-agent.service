@@ -1,0 +1,19 @@
+[Unit]
+Description=Experience Budget Gateway Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/experience-budget-agent
+Restart=on-failure
+RestartSec=5
+# Run as a dedicated unprivileged user where possible; enforcement needs
+# CAP_NET_ADMIN, granted via ambient capabilities or sudoers for the helper.
+EnvironmentFile=-/etc/default/experience-budget-agent
+# Capabilities needed for interface/NAT/tc management on Linux.
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

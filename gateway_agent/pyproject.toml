@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "experience-budget-agent"
+version = "0.8.0"
+description = "Experience Budget standalone gateway agent"
+requires-python = ">=3.9"
+dependencies = [
+    "websockets",
+]
+
+[project.scripts]
+experience-budget-agent = "gateway_agent.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["gateway_agent*"]

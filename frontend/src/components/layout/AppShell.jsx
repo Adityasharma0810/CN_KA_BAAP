@@ -1,12 +1,17 @@
 import { useState, useEffect } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import "./AppShell.css";
-import { StatusBadge, StatusBadges } from "../ui/StatusBadge";
-import { getGatewayStatus, getHealth, getSystemCapabilities } from "../../api/client";
+import { StatusBadge } from "../ui/StatusBadge";
+import {
+  getHealth,
+  getGatewayStatus,
+  getSystemCapabilities,
+} from "../../api/client";
 
 /**
- * AppShell - Main layout with sidebar navigation for three pages
- * Compare, Model Intelligence, Live Control
+ * AppShell - Main layout with sidebar navigation for all 16 tabs.
+ * Preserves the Experience Budget warm beige / ivory / charcoal / muted-blue
+ * design identity.
  */
 export function AppShell({ children }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -38,7 +43,7 @@ export function AppShell({ children }) {
           ? capabilities.value.platform || "unknown"
           : "unavailable",
       );
-      timer = window.setTimeout(refreshStatus, 1000);
+      timer = window.setTimeout(refreshStatus, 5000);
     };
 
     refreshStatus();
@@ -50,51 +55,28 @@ export function AppShell({ children }) {
   }, []);
 
   const navigation = [
-    { path: "/compare", label: "Compare", icon: CompareIcon },
-    { path: "/model-intelligence", label: "Model Intelligence", icon: ModelIcon },
-    { path: "/live-control", label: "Live Control", icon: LiveIcon },
+    { path: "/", label: "Overview", icon: OverviewIcon },
+    { path: "/usage-tree", label: "Usage Tree", icon: UsageTreeIcon },
+    { path: "/live-metrics", label: "Live Metrics", icon: LiveMetricsIcon },
+    { path: "/devices", label: "Devices", icon: DevicesIcon },
+    { path: "/intents", label: "Intent Control", icon: IntentIcon },
+    { path: "/conflicts", label: "Conflict Resolution", icon: ConflictIcon },
+    { path: "/network-health", label: "Network Health", icon: HealthIcon },
+    { path: "/demand-forecast", label: "Demand Forecast", icon: ForecastIcon },
+    { path: "/multi-wan", label: "Multi-Link", icon: MultiWanIcon },
+    { path: "/decisions", label: "Decision Log", icon: DecisionIcon },
+    { path: "/experiments", label: "Experiments", icon: ExperimentsIcon },
+    { path: "/ml-lab", label: "ML Lab", icon: MlIcon },
+    { path: "/settings", label: "Settings & Safety", icon: SettingsIcon },
+    { path: "/gateway-setup", label: "Gateway Setup", icon: SetupIcon },
+    { path: "/simulation", label: "Simulation", icon: SimIcon },
+    { path: "/about", label: "About & Limitations", icon: AboutIcon },
   ];
-
-  const getStatusBadge = (status) => {
-    switch (status) {
-      case "connected":
-        return <StatusBadges.Online>Backend</StatusBadges.Online>;
-      case "degraded":
-        return <StatusBadges.Degraded>Backend</StatusBadges.Degraded>;
-      case "disconnected":
-        return <StatusBadges.Offline>Backend</StatusBadges.Offline>;
-      case "error":
-        return <StatusBadges.Failure>Backend</StatusBadges.Failure>;
-      default:
-        return <StatusBadges.Unknown>Backend</StatusBadges.Unknown>;
-    }
-  };
-
-  const getGatewayBadge = (status) => {
-    switch (status) {
-      case "connected":
-        return <StatusBadges.Live>Gateway</StatusBadges.Live>;
-      case "degraded":
-        return <StatusBadges.Degraded>Gateway</StatusBadges.Degraded>;
-      case "disconnected":
-        return <StatusBadges.Offline>Gateway</StatusBadges.Offline>;
-      case "error":
-        return <StatusBadges.Failure>Gateway</StatusBadges.Failure>;
-      default:
-        return <StatusBadges.Unknown>Gateway</StatusBadges.Unknown>;
-    }
-  };
 
   return (
     <div className="app-shell">
       <aside className={`app-shell__sidebar ${sidebarCollapsed ? "app-shell__sidebar--collapsed" : ""}`} role="navigation" aria-label="Main navigation">
         <div className="app-shell__sidebar-header">
-          {!sidebarCollapsed && (
-            <div className="app-shell__logo">
-              <LogoIcon />
-              <span className="app-shell__logo-text">Experience Budget</span>
-            </div>
-          )}
           <button
             className="app-shell__collapse-btn"
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
@@ -103,26 +85,36 @@ export function AppShell({ children }) {
           >
             <CollapseIcon collapsed={sidebarCollapsed} />
           </button>
+          {!sidebarCollapsed && (
+            <div className="app-shell__logo">
+              <LogoIcon />
+              <span className="app-shell__logo-text">Experience Budget</span>
+            </div>
+          )}
         </div>
 
         <nav className="app-shell__nav">
           <ul className="app-shell__nav-list" role="list">
-            {navigation.map((item) => (
-              <li key={item.path} className="app-shell__nav-item">
-                <NavLink
-                  to={item.path}
-                  className={({ isActive }) =>
-                    `app-shell__nav-link ${isActive ? "app-shell__nav-link--active" : ""}`
-                  }
-                  title={sidebarCollapsed ? item.label : undefined}
-                >
-                  <span className="app-shell__nav-icon" aria-hidden="true">
-                    <item.icon />
-                  </span>
-                  {!sidebarCollapsed && <span className="app-shell__nav-label">{item.label}</span>}
-                </NavLink>
-              </li>
-            ))}
+            {navigation.map((item) => {
+            return (
+                <li key={item.path} className="app-shell__nav-item">
+                  <NavLink
+                    to={item.path}
+                    className={({ isActive: active }) =>
+                      `app-shell__nav-link ${active ? "app-shell__nav-link--active" : ""}`
+                    }
+                    title={sidebarCollapsed ? item.label : undefined}
+                  >
+                    <span className="app-shell__nav-icon" aria-hidden="true">
+                      <item.icon />
+                    </span>
+                    {!sidebarCollapsed && (
+                      <span className="app-shell__nav-label">{item.label}</span>
+                    )}
+                  </NavLink>
+                </li>
+              );
+            })}
           </ul>
         </nav>
 
@@ -132,23 +124,33 @@ export function AppShell({ children }) {
             <dl className="app-shell__status-list">
               <div className="app-shell__status-row">
                 <dt>Backend</dt>
-                <dd>{getStatusBadge(backendStatus)}</dd>
+                <dd>{statusBadge(backendStatus)}</dd>
               </div>
               <div className="app-shell__status-row">
                 <dt>Gateway</dt>
-                <dd>{getGatewayBadge(gatewayStatus)}</dd>
+                <dd>{gatewayBadge(gatewayStatus)}</dd>
               </div>
               <div className="app-shell__status-row">
                 <dt>Platform</dt>
-                <dd><StatusBadge variant={platform === "checking" || platform === "unavailable" ? "unknown" : "success"} size="sm">{formatPlatform(platform)}</StatusBadge></dd>
+                <dd>
+                  <StatusBadge
+                    variant={
+                      platform === "checking" || platform === "unavailable"
+                        ? "unknown"
+                        : "success"
+                    }
+                    size="sm"
+                  >
+                    {formatPlatform(platform)}
+                  </StatusBadge>
+                </dd>
               </div>
             </dl>
           </div>
-
           {!sidebarCollapsed && (
             <div className="app-shell__version">
               <span className="app-shell__version-label">Version</span>
-              <span className="app-shell__version-value">0.7.0</span>
+              <span className="app-shell__version-value">0.8.0</span>
             </div>
           )}
         </div>
@@ -164,9 +166,6 @@ export function AppShell({ children }) {
           <div className="app-shell__header-right">
             <button className="app-shell__header-btn" aria-label="Settings">
               <SettingsIcon />
-            </button>
-            <button className="app-shell__header-btn" aria-label="Notifications">
-              <BellIcon />
             </button>
           </div>
         </header>
@@ -195,22 +194,51 @@ function resolveStatus(result, unavailableStatus = "error") {
   }
 }
 
+function statusBadge(status) {
+  const map = {
+    connected: <StatusBadge variant="success" size="sm">Online</StatusBadge>,
+    degraded: <StatusBadge variant="warning" size="sm">Degraded</StatusBadge>,
+    disconnected: <StatusBadge variant="offline" size="sm">Offline</StatusBadge>,
+    error: <StatusBadge variant="failure" size="sm">Error</StatusBadge>,
+  };
+  return map[status] || <StatusBadge variant="unknown" size="sm">Unknown</StatusBadge>;
+}
+
+function gatewayBadge(status) {
+  const map = {
+    connected: <StatusBadge variant="live" size="sm">Connected</StatusBadge>,
+    paired: <StatusBadge variant="info" size="sm">Paired</StatusBadge>,
+    disconnected: <StatusBadge variant="offline" size="sm">Offline</StatusBadge>,
+    unpaired: <StatusBadge variant="unknown" size="sm">Unpaired</StatusBadge>,
+  };
+  return map[status] || <StatusBadge variant="unknown" size="sm">Unknown</StatusBadge>;
+}
+
 function formatPlatform(platform) {
   if (!platform) return "Unknown";
   return platform.charAt(0).toUpperCase() + platform.slice(1);
 }
 
 function getPageTitle(pathname) {
-  switch (pathname) {
-    case "/compare":
-      return "Network Experience Comparison";
-    case "/model-intelligence":
-      return "Model Intelligence";
-    case "/live-control":
-      return "Live Control";
-    default:
-      return "Experience Budget";
-  }
+  const titles = {
+    "/": "Overview",
+    "/usage-tree": "Usage Tree",
+    "/live-metrics": "Live Metrics",
+    "/devices": "Devices",
+    "/intents": "Intent Control",
+    "/conflicts": "Conflict Resolution",
+    "/network-health": "Network Health & Recovery",
+    "/demand-forecast": "Demand Forecast",
+    "/multi-wan": "Multi-Link Status",
+    "/decisions": "Decision Log",
+    "/experiments": "Experiments & A-B Testing",
+    "/ml-lab": "ML Lab",
+    "/settings": "Settings & Safety",
+    "/gateway-setup": "Gateway Setup",
+    "/simulation": "Simulation",
+    "/about": "About & Limitations",
+  };
+  return titles[pathname] || "Experience Budget";
 }
 
 /* Icons */
@@ -223,51 +251,102 @@ function LogoIcon() {
     </svg>
   );
 }
-
-function CompareIcon() {
+function OverviewIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-      <path d="M18 18H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2z" />
-      <path d="M14 2v4" />
-      <path d="M10 2v4" />
-      <path d="M6 2v4" />
+      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+      <line x1="3" y1="12" x2="21" y2="12" />
     </svg>
   );
 }
-
-function ModelIcon() {
+function UsageTreeIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <line x1="5" y1="12" x2="19" y2="12" />
+    </svg>
+  );
+}
+function LiveMetricsIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+    </svg>
+  );
+}
+function DevicesIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+      <circle cx="12" cy="12" r="4" />
+      <path d="M5 20v2h14v-2" />
+      <path d="M17 20h2" />
+    </svg>
+  );
+}
+function IntentIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+      <path d="M12 2L2 7l10 5 10-5-10-5z" />
+      <path d="M2 17l10 5 10-5" />
+    </svg>
+  );
+}
+function ConflictIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+      <path d="M7 2L3 14l9 7 9-7-4-10" />
+    </svg>
+  );
+}
+function HealthIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+      <circle cx="12" cy="13" r="4" />
+    </svg>
+  );
+}
+function ForecastIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+      <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+    </svg>
+  );
+}
+function MultiWanIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <polyline points="14 2 14 8 20 8" />
+    </svg>
+  );
+}
+function DecisionIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <polyline points="14 2 14 8 20 8" />
+    </svg>
+  );
+}
+function ExperimentsIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" y1="8" x2="12" y2="16" />
+      <line x1="8" y1="12" x2="16" y2="12" />
+    </svg>
+  );
+}
+function MlIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
       <rect x="2" y="3" width="20" height="14" rx="2" />
       <path d="M8 21h8" />
       <path d="M12 17v4" />
-      <path d="M6 7h12" />
-      <path d="M6 11h12" />
     </svg>
   );
 }
-
-function LiveIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-      <polyline points="22 4 12 14.01 9 11.01" />
-    </svg>
-  );
-}
-
-function CollapseIcon({ collapsed }) {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-      {collapsed ? (
-        <path d="M9 18l6-6-6-6" />
-      ) : (
-        <path d="M15 18l-6-6 6-6" />
-      )}
-    </svg>
-  );
-}
-
 function SettingsIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
@@ -276,12 +355,38 @@ function SettingsIcon() {
     </svg>
   );
 }
-
-function BellIcon() {
+function SetupIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+      <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+    </svg>
+  );
+}
+function SimIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+function AboutIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" y1="16" x2="12" y2="12" />
+      <line x1="12" y1="8" x2="12.01" y2="8" />
+    </svg>
+  );
+}
+function CollapseIcon({ collapsed }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+      {collapsed ? (
+        <path d="M9 18l6-6-6-6" />
+      ) : (
+        <path d="M15 18l-6-6 6-6" />
+      )}
     </svg>
   );
 }
