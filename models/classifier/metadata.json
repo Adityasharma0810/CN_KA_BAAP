@@ -1,0 +1,46 @@
+{
+  "version": "1.0",
+  "feature_order": [
+    "download_mbps",
+    "upload_mbps",
+    "rate_ratio_down",
+    "direction_ratio_up",
+    "mean_packet_size_bytes"
+  ],
+  "confidence_threshold": 0.6,
+  "classes": [
+    "call",
+    "game",
+    "stream",
+    "bulk",
+    "unknown"
+  ],
+  "held_out_f1": 1.0,
+  "held_out_accuracy": 1.0,
+  "baseline_f1": 0.0,
+  "baseline_accuracy": 0.0,
+  "confusion_matrix": [
+    [
+      1,
+      0
+    ],
+    [
+      0,
+      2
+    ]
+  ],
+  "labels": [
+    "game",
+    "stream"
+  ],
+  "train_runs": [
+    "2c818dd3de404d65acfc78083ab21889",
+    "9c62d613b157446b859afccd24111a10",
+    "e896974df3be49e6924fe517a246ddc3"
+  ],
+  "test_runs": [
+    "f42dea9dbb5f4c8b93b9a912ea4d05a3"
+  ],
+  "split": "by run id; last 25% held out",
+  "training_note": "Trained on lab-derived features (rates, direction ratio, mean packet size) labelled by scenario run manifests. External ISCX models were not used (per-flow packet features unavailable). Results are lab-only and do not prove real-ISP performance."
+}

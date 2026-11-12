@@ -1,5 +1,8 @@
-# ML dependencies used by the live capacity-forecast service.
-# Runtime application dependencies are managed in the project virtualenv.
+# ML dependencies used by the live capacity-forecast service and the
+# lab-derived traffic classifier. Runtime application dependencies are managed
+# in the project virtualenv.
 lightgbm==4.7.0
 numpy==2.5.4
 scipy==1.18.1
+scikit-learn==1.9.1
+joblib==1.6.0

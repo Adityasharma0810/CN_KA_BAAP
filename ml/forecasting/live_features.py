@@ -19,6 +19,7 @@ Limitations (documented, honest):
 
 from __future__ import annotations
 
+import bisect
 from collections import defaultdict
 from datetime import datetime
 from typing import Iterable
@@ -27,6 +28,10 @@ from ml.forecasting.features import generate_features
 from ml.forecasting.schema import CLIENT_NAMES, TelemetrySample
 
 MIN_SAMPLES = 31
+# Client and aggregate observations in the same ingest cycle are timestamped a
+# fraction of a millisecond apart, so they are aligned by nearest timestamp
+# within this tolerance (well under the ~2 s ingest interval).
+ALIGN_TOLERANCE_S = 1.0
 
 
 def build_live_feature_row(
@@ -45,21 +50,45 @@ def build_live_feature_row(
     ``min_samples`` aligned timestamps are available.
     """
     by_ts_clients: dict[datetime, dict[str, object]] = defaultdict(dict)
+    client_ts: list[datetime] = []
     for obs in client_observations:
         cid = obs.metadata.client_id
         if cid is None:
             continue
-        by_ts_clients[obs.metadata.observed_at][cid] = obs
+        ts = obs.metadata.observed_at
+        by_ts_clients[ts][cid] = obs
+        client_ts.append(ts)
+    client_ts = sorted(set(client_ts))
 
     by_ts_agg: dict[datetime, object] = {}
     for obs in aggregate_observations:
         by_ts_agg[obs.metadata.observed_at] = obs
 
-    timestamps = sorted(set(by_ts_clients) & set(by_ts_agg))
-    if len(timestamps) < min_samples:
+    # Align each aggregate timestamp to the nearest client timestamp within the
+    # tolerance (same ingest cycle).  Key the aligned sample by the client ts.
+    aligned: list[tuple[datetime, object]] = []
+    for agg_ts, agg in by_ts_agg.items():
+        idx = bisect.bisect_left(client_ts, agg_ts)
+        nearest: datetime | None = None
+        best_gap = None
+        if idx > 0:
+            candidate = client_ts[idx - 1]
+            gap = abs((candidate - agg_ts).total_seconds())
+            if best_gap is None or gap < best_gap:
+                best_gap, nearest = gap, candidate
+        if idx < len(client_ts):
+            candidate = client_ts[idx]
+            gap = abs((candidate - agg_ts).total_seconds())
+            if best_gap is None or gap < best_gap:
+                best_gap, nearest = gap, candidate
+        if nearest is not None and best_gap is not None and best_gap <= ALIGN_TOLERANCE_S:
+            aligned.append((nearest, agg))
+
+    aligned.sort(key=lambda pair: pair[0])
+    if len(aligned) < min_samples:
         return None
-    timestamps = timestamps[-min_samples:]
-    first_ts = timestamps[0]
+    aligned = aligned[-min_samples:]
+    first_ts = aligned[0][0]
 
     # Map slot number -> client_id once.
     slot_to_client: dict[int, str | None] = {}
@@ -70,7 +99,7 @@ def build_live_feature_row(
         )
 
     samples: list[TelemetrySample] = []
-    for seq, ts in enumerate(timestamps):
+    for seq, (ts, agg) in enumerate(aligned):
         client_map = by_ts_clients[ts]
         client_rates: dict[str, dict[str, float | None]] = {}
         for name in CLIENT_NAMES:
@@ -81,7 +110,6 @@ def build_live_feature_row(
                 "down": obs.download_mbps if obs is not None else None,
                 "up": obs.upload_mbps if obs is not None else None,
             }
-        agg = by_ts_agg[ts]
         elapsed = (ts - first_ts).total_seconds()
         samples.append(
             TelemetrySample(
@@ -112,4 +140,4 @@ def build_live_feature_row(
     rows = generate_features(samples)
     if not rows:
         return None
-    return rows[-1].values, len(timestamps)
+    return rows[-1].values, len(aligned)

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import csv
 import json
+import sqlite3
 from collections import defaultdict
 from pathlib import Path
 
@@ -32,20 +33,56 @@ from backend.app.services.classifier_service import (
     CONFIDENCE_THRESHOLD,
     extract_features,
 )
-from backend.app.services.lab_accounting_service import lab_accounting_service
 from backend.app.models.schemas import TelemetryObservation
 
 REPO = Path(__file__).resolve().parents[2]
 RUNS_DIR = REPO / "data" / "scenario_runs"
 OUT_DIR = REPO / "models" / "classifier"
+DB_PATH = REPO / "data" / "experience_budget.sqlite3"
 MIN_RUNS = 4  # need enough runs for a held-out split
 
 
-def _slot_for_client(client_id: str) -> int | None:
-    for client in lab_accounting_service.inventory:
-        if client.client_id == client_id:
-            return client.client_number
-    return None
+def _client_slots_from_db() -> dict[str, int]:
+    """client_id -> slot from the persisted anonymous_clients table.
+
+    The in-memory lab inventory generates random client_ids per process and
+    does not match the ingest-registered ids stored with observations, so the
+    durable DB mapping is the authoritative source for labelling.
+    """
+    mapping: dict[str, int] = {}
+    if not DB_PATH.is_file():
+        return mapping
+    connection = sqlite3.connect(str(DB_PATH))
+    try:
+        for row in connection.execute(
+            "SELECT client_id, simulated_lab_slot FROM anonymous_clients"
+        ):
+            mapping[str(row[0])] = int(row[1])
+    finally:
+        connection.close()
+    return mapping
+
+
+def split_run_ids(run_ids):
+    """Split run IDs into (train_run_ids, test_run_ids) by RUN, never random.
+
+    The last ~25% of runs (sorted) are held out for testing; no run appears in
+    both splits. Deterministic (no random window) so there is no leakage.
+    """
+    ordered = sorted(set(run_ids))
+    if not ordered:
+        return [], []
+    if len(ordered) < MIN_RUNS:
+        # Too few runs for a meaningful held-out split.
+        return list(ordered), []
+    split = max(1, len(ordered) // 4)
+    test_runs = set(ordered[-split:])
+    train_runs = [r for r in ordered if r not in test_runs]
+    return train_runs, sorted(test_runs)
+
+
+def _slot_for_client(client_id: str, slots: dict[str, int]) -> int | None:
+    return slots.get(client_id)
 
 
 def read_labelled_runs() -> list[dict]:
@@ -54,6 +91,7 @@ def read_labelled_runs() -> list[dict]:
     Skips runs whose outcome is an error (e.g. helper_missing) and clients
     whose slot has no declared profile.
     """
+    slots = _client_slots_from_db()
     runs: dict[str, list] = defaultdict(list)
     for run_dir in sorted(RUNS_DIR.iterdir() if RUNS_DIR.is_dir() else []):
         manifest_path = run_dir / "manifest.json"
@@ -71,7 +109,7 @@ def read_labelled_runs() -> list[dict]:
                 if row.get("scope") != "client":
                     continue
                 client_id = row.get("client_id")
-                slot = _slot_for_client(client_id) if client_id else None
+                slot = _slot_for_client(client_id, slots) if client_id else None
                 label = slot_to_profile.get(str(slot)) if slot else None
                 if label is None:
                     continue
@@ -101,7 +139,7 @@ def read_labelled_runs() -> list[dict]:
         for item in items:
             by_client[item["client_id"]].append(item)
         for client_id, client_items in by_client.items():
-            agg = _mean_features([i["features"] for i in client_items])
+            agg = _median_features([i["features"] for i in client_items])
             samples.append({"run_id": run_id, "label": client_items[0]["label"], "features": agg})
     return samples
 
@@ -116,12 +154,19 @@ def _f(value):
         return None
 
 
-def _mean_features(rows):
+def _median_features(rows):
+    """Median of each feature across a client's run samples.
+
+    Median (not mean) is used so a single counter-reset rate spike does not
+    corrupt the aggregated feature vector.
+    """
+    import statistics
+
     keys = rows[0].keys()
     out = {}
     for k in keys:
         vals = [r[k] for r in rows if r[k] is not None]
-        out[k] = sum(vals) / len(vals) if vals else None
+        out[k] = statistics.median(vals) if vals else None
     return out
 
 
@@ -171,10 +216,9 @@ def train_and_evaluate():
         return
 
     run_ids = sorted({s["run_id"] for s in samples})
-    split = max(1, len(run_ids) // 4)
-    test_runs = set(run_ids[-split:])
-    train = [s for s in samples if s["run_id"] not in test_runs]
-    test = [s for s in samples if s["run_id"] in test_runs]
+    train_runs, test_runs = split_run_ids(run_ids)
+    train = [s for s in samples if s["run_id"] in set(train_runs)]
+    test = [s for s in samples if s["run_id"] in set(test_runs)]
 
     def matrix(rows):
         return np.asarray([[r["features"].get(k) for k in FEATURE_ORDER] for r in rows], dtype=float)
@@ -212,10 +256,15 @@ def train_and_evaluate():
         "test_runs": sorted(test_runs),
         "split": "by run id; last 25% held out",
         "training_note": (
-            "Trained on lab-derived features (rates, direction ratio, mean packet "
-            "size) labelled by scenario run manifests. External ISCX models were "
-            "not used (per-flow packet features unavailable). Results are lab-only "
-            "and do not prove real-ISP performance."
+            f"Trained on lab-derived features (rates, direction ratio, mean "
+            f"packet size) labelled by scenario run manifests. Held out "
+            f"{len(test_runs)} run(s) / {len(test)} samples; held-out classes: "
+            f"{sorted(set(y_test))}. With only {len(run_ids)} labelled runs the "
+            f"held-out is too small to be a meaningful validation (and does not "
+            f"cover all classes), so the F1 is preliminary and likely overfit. "
+            f"External ISCX models were not used (per-flow packet features "
+            f"unavailable). Lab-scripted/emulated data only; results do not "
+            f"prove real-ISP performance."
         ),
     }
     (OUT_DIR / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")

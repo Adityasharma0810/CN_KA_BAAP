@@ -43,16 +43,23 @@ fi
 /usr/bin/install -o root -g root -m 0755 \
   "${SCRIPT_DIR}/eb-priv" "$HELPER_TMP"
 {
-  printf '%s ALL=(root) NOPASSWD: %s probe [1-9]\n' "$SUDO_USER" "$DEST_HELPER"
-  for slot_pattern in '[1-9]' '[1-9][0-9]'; do
+  # NOTE: this host ships sudo-rs (the Rust sudo), which does NOT match
+  # bracket-glob character classes ([1-9], [1-9][0-9]) in command arguments.
+  # Literal argument values are required for the NOPASSWD rules to match.
+  # Probe per slot (literal 1-9; validated slot numbers).
+  for slot in 1 2 3 4 5 6 7 8 9; do
+    printf '%s ALL=(root) NOPASSWD: %s probe %s\n' "$SUDO_USER" "$DEST_HELPER" "$slot"
+  done
+  # Traffic start per (slot, profile, duration); validated literal durations.
+  for slot in 1 2 3 4 5 6 7 8 9; do
     for profile in call game stream bulk; do
-      for seconds_pattern in '[5-9]' '[1-9][0-9]' '1[01][0-9]' 120; do
+      for seconds in 30 60 90 120; do
         printf '%s ALL=(root) NOPASSWD: %s traffic start %s %s %s\n' \
-          "$SUDO_USER" "$DEST_HELPER" "$slot_pattern" "$profile" "$seconds_pattern"
+          "$SUDO_USER" "$DEST_HELPER" "$slot" "$profile" "$seconds"
       done
     done
     printf '%s ALL=(root) NOPASSWD: %s traffic stop %s\n' \
-      "$SUDO_USER" "$DEST_HELPER" "$slot_pattern"
+      "$SUDO_USER" "$DEST_HELPER" "$slot"
   done
   printf '%s ALL=(root) NOPASSWD: %s traffic stop-all\n' "$SUDO_USER" "$DEST_HELPER"
   for rate in 100 50 20 10 5 off; do

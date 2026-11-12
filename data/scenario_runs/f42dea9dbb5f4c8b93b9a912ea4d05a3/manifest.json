@@ -1,0 +1,35 @@
+{
+  "end_utc": "2026-11-12T20:41:55.704185+00:00",
+  "lab_client_count": 3,
+  "outcome": {
+    "safe_code": null,
+    "status": "completed"
+  },
+  "planned_timeline": [
+    {
+      "action": "start declared traffic",
+      "at_seconds": 0,
+      "phase": "start"
+    },
+    {
+      "action": "stop all traffic and restore bottleneck",
+      "at_seconds": 60,
+      "phase": "stop"
+    }
+  ],
+  "run_id": "f42dea9dbb5f4c8b93b9a912ea4d05a3",
+  "scenario_id": "tvs_and_gamer",
+  "seed": null,
+  "slot_to_profile": {
+    "1": "stream",
+    "2": "stream",
+    "3": "game"
+  },
+  "start_utc": "2026-11-12T20:40:54.312871+00:00",
+  "tool_versions": {
+    "iperf3": "3.20",
+    "kernel": "7.0.0-43-generic",
+    "ping": "20250605",
+    "python": "3.14.4"
+  }
+}

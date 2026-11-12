@@ -14,6 +14,7 @@ Forecast-vs-actual history is held in memory and resets on restart.
 from __future__ import annotations
 
 import pickle
+import sqlite3
 import statistics
 from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
@@ -28,7 +29,6 @@ from backend.app.models.forecast_schemas import (
 )
 from backend.app.models.schemas import TelemetryObservation
 from backend.app.services.capacity_service import build_capacity_estimate
-from backend.app.services.lab_accounting_service import lab_accounting_service
 from backend.app.services.observation_query_service import _shared_store
 from ml.forecasting.live_features import MIN_SAMPLES, build_live_feature_row
 
@@ -84,10 +84,26 @@ _history: deque = deque(maxlen=MAX_HISTORY_POINTS)
 
 
 def _client_slots() -> dict[str, int]:
-    return {
-        client.client_id: client.client_number
-        for client in lab_accounting_service.inventory
-    }
+    """client_id -> slot from the persisted DB.
+
+    The in-memory lab inventory generates random client_ids per process that
+    do not match the ingest-registered ids stored with observations, so the
+    durable DB mapping is the authoritative source for mapping observation
+    client_ids to slots.
+    """
+    mapping: dict[str, int] = {}
+    path = database_path()
+    if not path.exists():
+        return mapping
+    connection = sqlite3.connect(str(path))
+    try:
+        for row in connection.execute(
+            "SELECT client_id, simulated_lab_slot FROM anonymous_clients"
+        ):
+            mapping[str(row[0])] = int(row[1])
+    finally:
+        connection.close()
+    return mapping
 
 
 def _aggregate_series(store) -> list[TelemetryObservation]:
@@ -234,15 +250,19 @@ def build_current_forecast(*, requested_at: datetime | None = None) -> ForecastC
     capacity_unc = capacity_estimate.uncertainty_mbps if capacity_estimate and capacity_estimate.available else None
 
     persistence_mbps = next(
-        (obs.download_mbps for obs in reversed(aggregates) if obs.download_mbps is not None),
+        (obs.download_mbps for obs in aggregates if obs.download_mbps is not None),
         None,
     )
 
+    # configured_capacity_mbps (the declared bottleneck the model was trained
+    # on) is not exposed by the scenario service, so it is left unknown (None)
+    # and the model relies on rate features. The Kalman capacity estimate is
+    # reported separately in the response for context.
     feature_result = build_live_feature_row(
         client_obs,
         aggregates,
         slots,
-        capacity_mbps,
+        None,
     )
 
     for horizon in SERVED_HORIZONS:
