@@ -1,9 +1,9 @@
 {
-  "end_utc": null,
+  "end_utc": "2026-11-12T21:39:45.304254+00:00",
   "lab_client_count": 3,
   "outcome": {
     "safe_code": null,
-    "status": "running"
+    "status": "completed"
   },
   "planned_timeline": [
     {
